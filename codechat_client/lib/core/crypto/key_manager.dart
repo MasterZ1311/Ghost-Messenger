@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:bip39/bip39.dart' as bip39;
-import 'package:crypto/crypto.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart' as signal;
 
 /// Manages BIP39 mnemonic generation and Signal identity key derivation.
 class KeyManager {
@@ -24,22 +24,22 @@ class KeyManager {
     // For deterministic derivation from mnemonic, a KDF step would
     // be needed in production. For MVP we generate fresh keys and 
     // store them; the mnemonic is used for backup/export only.
-    return generateRegistrationKeyPair();
+    return signal.generateIdentityKeyPair();
   }
 
   /// Generates a fresh IdentityKeyPair using secure random.
   static IdentityKeyPair generateRegistrationKeyPair() {
-    return generateIdentityKeyPair();
+    return signal.generateIdentityKeyPair();
   }
 
   /// Generates a random registration ID.
   static int generateRegistrationId() {
-    return generateRegistrationId_(); // libsignal helper
+    return signal.generateRegistrationId(false);
   }
 
   /// Generates a batch of one-time PreKeys.
   static List<PreKeyRecord> generatePreKeys(int start, int count) {
-    return generatePreKeys_(start, count);
+    return signal.generatePreKeys(start, count);
   }
 
   /// Generates a signed pre-key.
@@ -47,26 +47,7 @@ class KeyManager {
     IdentityKeyPair identityKeyPair,
     int signedPreKeyId,
   ) {
-    return generateSignedPreKey_(identityKeyPair, signedPreKeyId);
+    return signal.generateSignedPreKey(identityKeyPair, signedPreKeyId);
   }
 }
 
-// Wrapper functions that call libsignal_protocol_dart top-level helpers
-IdentityKeyPair generateIdentityKeyPair() {
-  return KeyHelper.generateIdentityKeyPair();
-}
-
-int generateRegistrationId_() {
-  return KeyHelper.generateRegistrationId(false);
-}
-
-List<PreKeyRecord> generatePreKeys_(int start, int count) {
-  return KeyHelper.generatePreKeys(start, count);
-}
-
-SignedPreKeyRecord generateSignedPreKey_(
-  IdentityKeyPair identityKeyPair,
-  int signedPreKeyId,
-) {
-  return KeyHelper.generateSignedPreKey(identityKeyPair, signedPreKeyId);
-}

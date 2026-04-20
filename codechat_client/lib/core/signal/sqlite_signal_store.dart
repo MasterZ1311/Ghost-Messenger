@@ -143,6 +143,16 @@ class SQLiteSignalStore
   // ──────────────────────────────────────────────
 
   @override
+  Future<List<SignedPreKeyRecord>> loadSignedPreKeys() async {
+    final maps = await db.query('signed_prekeys');
+    return maps.map((m) {
+      return SignedPreKeyRecord.fromSerialized(
+        Uint8List.fromList(m['record'] as List<int>),
+      );
+    }).toList();
+  }
+
+  @override
   Future<SignedPreKeyRecord> loadSignedPreKey(int signedPreKeyId) async {
     final maps = await db.query(
       'signed_prekeys',
