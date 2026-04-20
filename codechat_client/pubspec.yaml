@@ -1,0 +1,37 @@
+name: codechat_client
+description: "A P2P End-to-End Encrypted Texting App"
+version: 1.0.0+1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  
+  # Transport & P2P
+  flutter_webrtc: ^0.10.0
+  socket_io_client: ^2.0.3
+  
+  # Signal Protocol (Pure Dart — auditable E2EE)
+  libsignal_protocol_dart: ^0.7.1
+  
+  # Storage & Crypto
+  flutter_secure_storage: ^9.0.0
+  sqflite_sqlcipher: ^3.0.0+2
+  path_provider: ^2.1.1
+  path: ^1.9.0
+  bip39: ^1.0.6
+  base32: ^2.1.3
+  crypto: ^3.0.3
+  convert: ^3.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
