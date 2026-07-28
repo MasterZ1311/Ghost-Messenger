@@ -73,6 +73,15 @@ const config = Object.freeze({
     httpMax: parseInteger(process.env.HTTP_RATE_MAX, 100),
   },
 
+  // PreKey bundle store: X3DH key distribution
+  prekey: {
+    // Hard cap on total PreKey bundles held in memory across all users.
+    maxBundlesTotal: parseInteger(process.env.PREKEY_MAX_BUNDLES, 10000),
+  },
+
+  // Graceful shutdown grace period
+  shutdownTimeoutMs: parseInteger(process.env.SHUTDOWN_TIMEOUT_MS, 10000),
+
   // Validation limits
   validation: {
     // UserCode format: alphanumeric (base32-ish), reasonable length bounds.

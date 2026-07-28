@@ -8,6 +8,9 @@ const USER_CODE_REGEX = /^[A-Za-z0-9_-]+$/;
 
 const ALLOWED_SIGNAL_TYPES = new Set(['offer', 'answer', 'candidate']);
 
+// Base64 alphabet (standard + URL-safe) for quick sanity-checks on key fields.
+const BASE64_REGEX = /^[A-Za-z0-9+/\-_]+=*$/;
+
 /**
  * Validates a UserCode string.
  * @returns {{ ok: boolean, reason?: string }}
@@ -69,8 +72,70 @@ function validateSignalEnvelope(payload) {
   return { ok: true };
 }
 
+/**
+ * Validates an inbound X3DH PreKey bundle.
+ *
+ * Required fields:
+ *   registrationId      – positive integer
+ *   identityKey         – base64 string (33-byte compressed Curve25519 public key)
+ *   signedPreKey.keyId  – non-negative integer
+ *   signedPreKey.publicKey – base64 string
+ *   signedPreKey.signature – base64 string
+ *
+ * Optional field:
+ *   preKey.keyId        – non-negative integer
+ *   preKey.publicKey    – base64 string
+ *
+ * @param {object} bundle
+ * @returns {{ ok: boolean, reason?: string }}
+ */
+function validatePreKeyBundle(bundle) {
+  if (!bundle || typeof bundle !== 'object') {
+    return { ok: false, reason: 'Bundle must be an object' };
+  }
+
+  const { registrationId, identityKey, signedPreKey, preKey } = bundle;
+
+  if (!Number.isInteger(registrationId) || registrationId <= 0) {
+    return { ok: false, reason: 'registrationId must be a positive integer' };
+  }
+
+  if (typeof identityKey !== 'string' || !BASE64_REGEX.test(identityKey) || identityKey.length === 0) {
+    return { ok: false, reason: 'identityKey must be a non-empty base64 string' };
+  }
+
+  if (!signedPreKey || typeof signedPreKey !== 'object') {
+    return { ok: false, reason: 'signedPreKey must be an object' };
+  }
+  if (!Number.isInteger(signedPreKey.keyId) || signedPreKey.keyId < 0) {
+    return { ok: false, reason: 'signedPreKey.keyId must be a non-negative integer' };
+  }
+  if (typeof signedPreKey.publicKey !== 'string' || !BASE64_REGEX.test(signedPreKey.publicKey) || signedPreKey.publicKey.length === 0) {
+    return { ok: false, reason: 'signedPreKey.publicKey must be a non-empty base64 string' };
+  }
+  if (typeof signedPreKey.signature !== 'string' || !BASE64_REGEX.test(signedPreKey.signature) || signedPreKey.signature.length === 0) {
+    return { ok: false, reason: 'signedPreKey.signature must be a non-empty base64 string' };
+  }
+
+  // Optional one-time preKey — if present, both sub-fields are required.
+  if (preKey !== undefined && preKey !== null) {
+    if (typeof preKey !== 'object') {
+      return { ok: false, reason: 'preKey must be an object if provided' };
+    }
+    if (!Number.isInteger(preKey.keyId) || preKey.keyId < 0) {
+      return { ok: false, reason: 'preKey.keyId must be a non-negative integer' };
+    }
+    if (typeof preKey.publicKey !== 'string' || !BASE64_REGEX.test(preKey.publicKey) || preKey.publicKey.length === 0) {
+      return { ok: false, reason: 'preKey.publicKey must be a non-empty base64 string' };
+    }
+  }
+
+  return { ok: true };
+}
+
 module.exports = {
   validateUserCode,
   validateSignalEnvelope,
+  validatePreKeyBundle,
   ALLOWED_SIGNAL_TYPES,
 };

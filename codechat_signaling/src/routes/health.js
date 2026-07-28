@@ -3,6 +3,7 @@
 const express = require('express');
 const presence = require('../services/presence');
 const messageQueue = require('../services/messageQueue');
+const preKeyBundleStore = require('../services/preKeyBundleStore');
 
 const router = express.Router();
 
@@ -24,6 +25,7 @@ router.get('/metrics', (req, res) => {
     uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
     presence: presence.stats(),
     queue: messageQueue.stats(),
+    preKeyBundles: preKeyBundleStore.stats(),
     memory: process.memoryUsage(),
   });
 });

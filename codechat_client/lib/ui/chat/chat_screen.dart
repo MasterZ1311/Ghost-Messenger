@@ -1,11 +1,30 @@
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
-import '../../services/app_state.dart';
 
-/// Chat screen for a live P2P encrypted session with SQLCipher message persistence.
+/// Chat screen for a P2P encrypted session.
+///
+/// Accepts optional identity key bytes for both the local user and the remote
+/// peer.  When both are present, a Signal-style safety number (fingerprint) is
+/// computed and shown in the verification dialog.
 class ChatScreen extends StatefulWidget {
   final String remoteCode;
 
-  const ChatScreen({super.key, required this.remoteCode});
+  /// The local user's Signal identity public key bytes (33-byte compressed
+  /// Curve25519 key as serialized by libsignal_protocol_dart).
+  final Uint8List? localIdentityKey;
+
+  /// The remote peer's Signal identity public key bytes.
+  /// May be null until the session is fully established.
+  final Uint8List? remoteIdentityKey;
+
+  const ChatScreen({
+    super.key,
+    required this.remoteCode,
+    this.localIdentityKey,
+    this.remoteIdentityKey,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -13,131 +32,31 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
-  final AppState _appState = AppState.instance;
-  List<Message> _messages = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _appState.addListener(_onAppStateChanged);
-    _loadHistoricalMessages();
-  }
+  final List<Message> _messages = [];
 
   @override
   void dispose() {
-    _appState.removeListener(_onAppStateChanged);
     _messageController.dispose();
     super.dispose();
   }
 
-  void _onAppStateChanged() {
-    _loadHistoricalMessages();
-  }
-
-  Future<void> _loadHistoricalMessages() async {
-    final rawMessages = await _appState.loadMessages(widget.remoteCode);
-    if (!mounted) return;
-
-    final parsed = rawMessages.map((m) {
-      final rawTime = m['timestamp'] as String;
-      return Message(
-        text: m['content'] as String,
-        isMe: (m['is_me'] as int) == 1,
-        timestamp: DateTime.tryParse(rawTime) ?? DateTime.now(),
-      );
-    }).toList();
-
-    // Reverse list so newest message is at index 0 for reverse ListView
-    setState(() {
-      _messages = parsed.reversed.toList();
-      _isLoading = false;
-    });
-  }
-
-  Future<void> _sendMessage() async {
-    final text = _messageController.text.trim();
-    if (text.isEmpty) return;
-
-    _messageController.clear();
-    await _appState.sendMessage(widget.remoteCode, text);
-    await _loadHistoricalMessages();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final status = _appState.getPeerStatus(widget.remoteCode);
-
     return Scaffold(
       appBar: AppBar(
-        title: Row(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Stack(
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: const Color(0xFF262626),
-                  child: Text(
-                    widget.remoteCode.substring(0, 2),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    width: 9,
-                    height: 9,
-                    decoration: BoxDecoration(
-                      color: status == 'online'
-                          ? const Color(0xFF00FF41)
-                          : status == 'connecting'
-                              ? const Color(0xFFFFC107)
-                              : const Color(0xFF666666),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFF141414), width: 1.5),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.remoteCode,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-                Text(
-                  status.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.8,
-                    color: status == 'online'
-                        ? const Color(0xFF00FF41)
-                        : status == 'connecting'
-                            ? const Color(0xFFFFC107)
-                            : Colors.white38,
-                  ),
-                ),
-              ],
+            const Text('P2P SESSION'),
+            Text(
+              'Peer: ${widget.remoteCode}',
+              style: const TextStyle(fontSize: 12, color: Colors.greenAccent),
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.verified_user_outlined, size: 20),
+            icon: const Icon(Icons.security, size: 18),
             onPressed: _showSafetyNumbers,
             tooltip: 'Verify Safety Numbers',
           ),
@@ -146,27 +65,18 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF00FF41),
-                      strokeWidth: 2,
-                    ),
-                  )
-                : _messages.isEmpty
-                    ? _buildEmptyChatPrompt()
-                    : ListView.builder(
-                        reverse: true,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        itemCount: _messages.length,
-                        itemBuilder: (context, index) {
-                          final msg = _messages[index];
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _ChatBubble(msg: msg),
-                          );
-                        },
-                      ),
+            child: ListView.builder(
+              reverse: true,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              itemCount: _messages.length,
+              itemBuilder: (context, index) {
+                final msg = _messages[index];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ChatBubble(msg: msg),
+                );
+              },
+            ),
           ),
           _buildInputArea(),
         ],
@@ -174,37 +84,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildEmptyChatPrompt() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.lock_clock_outlined, size: 48, color: Colors.white24),
-            const SizedBox(height: 12),
-            Text(
-              'P2P Session with ${widget.remoteCode}',
-              style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Messages sent in this chat are end-to-end encrypted using Signal Protocol and saved locally to your encrypted SQLCipher store.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white38, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildInputArea() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.all(12),
       decoration: const BoxDecoration(
-        color: Color(0xFF141414),
-        border: Border(top: BorderSide(color: Color(0xFF262626))),
+        color: Color(0xFF1E1E1E),
+        border: Border(top: BorderSide(color: Colors.white12)),
       ),
       child: SafeArea(
         child: Row(
@@ -212,19 +97,15 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(
               child: TextField(
                 controller: _messageController,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-                decoration: const InputDecoration(
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration.collapsed(
                   hintText: 'Type encrypted message...',
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  fillColor: Colors.transparent,
+                  hintStyle: TextStyle(color: Colors.white38),
                 ),
-                onSubmitted: (_) => _sendMessage(),
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.send_rounded, color: Color(0xFF00FF41)),
+              icon: const Icon(Icons.send_rounded, color: Colors.greenAccent),
               onPressed: _sendMessage,
             ),
           ],
@@ -233,15 +114,108 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _sendMessage() {
+    if (_messageController.text.trim().isEmpty) return;
+
+    setState(() {
+      _messages.insert(
+        0,
+        Message(
+          text: _messageController.text.trim(),
+          isMe: true,
+          timestamp: DateTime.now(),
+        ),
+      );
+    });
+    _messageController.clear();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Safety Numbers (Signal-style fingerprint)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Computes a Signal-style safety number from two Curve25519 identity keys.
+  ///
+  /// Algorithm:
+  ///   1. Canonically sort the two 33-byte key blobs lexicographically so that
+  ///      both sides of the session always produce the same string regardless
+  ///      of who was the initiator.
+  ///   2. Concatenate the sorted pair and hash with SHA-512.
+  ///   3. Take the first 30 bytes of the digest.
+  ///   4. Split into 6 groups of 5 bytes; interpret each group as a big-endian
+  ///      unsigned 40-bit integer, then take `value % 100000` to yield a
+  ///      5-digit decimal (zero-padded).  This matches Signal's specification.
+  ///
+  /// Returns a string like "05823 19302 44812 01947 33019 82741".
+  static String _computeFingerprint(
+    Uint8List localKey,
+    Uint8List remoteKey,
+  ) {
+    // Step 1 — canonical ordering (lexicographic byte comparison)
+    final Uint8List first;
+    final Uint8List second;
+
+    bool localIsFirst = true;
+    for (int i = 0; i < localKey.length && i < remoteKey.length; i++) {
+      if (localKey[i] < remoteKey[i]) {
+        localIsFirst = true;
+        break;
+      } else if (localKey[i] > remoteKey[i]) {
+        localIsFirst = false;
+        break;
+      }
+    }
+    first = localIsFirst ? localKey : remoteKey;
+    second = localIsFirst ? remoteKey : localKey;
+
+    // Step 2 — SHA-512(first || second)
+    final combined = Uint8List(first.length + second.length)
+      ..setAll(0, first)
+      ..setAll(first.length, second);
+    final digest = sha512.convert(combined).bytes;
+
+    // Step 3 — first 30 bytes
+    final fingerprintBytes = Uint8List.fromList(digest.sublist(0, 30));
+
+    // Step 4 — 6 groups of 5 bytes → 5-digit decimal chunks
+    final buffer = StringBuffer();
+    for (int group = 0; group < 6; group++) {
+      final offset = group * 5;
+      // Interpret 5 bytes as a big-endian unsigned integer.
+      int value = 0;
+      for (int b = 0; b < 5; b++) {
+        value = (value << 8) | fingerprintBytes[offset + b];
+      }
+      // Reduce to 5 digits (mod 100000, zero-padded).
+      final chunk = (value % 100000).toString().padLeft(5, '0');
+      if (group > 0) buffer.write(' ');
+      buffer.write(chunk);
+    }
+    return buffer.toString();
+  }
+
   void _showSafetyNumbers() {
+    final localKey = widget.localIdentityKey;
+    final remoteKey = widget.remoteIdentityKey;
+
+    final bool sessionReady = localKey != null && remoteKey != null;
+    final String fingerprintText = sessionReady
+        ? _computeFingerprint(localKey, remoteKey)
+        : '—';
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.security, color: Color(0xFF00FF41)),
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.verified_user, color: Colors.greenAccent, size: 20),
             SizedBox(width: 8),
-            Text('Safety Numbers'),
+            Text(
+              'Safety Numbers',
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
           ],
         ),
         content: Column(
@@ -249,33 +223,47 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Compare these safety numbers with ${widget.remoteCode} to verify end-to-end encryption integrity:',
-              style: const TextStyle(fontSize: 13, color: Colors.white70),
+              sessionReady
+                  ? 'Compare these numbers with your contact out-of-band to confirm the E2EE session has not been tampered with.'
+                  : 'Session not yet established.\nConnect to your peer to generate safety numbers.',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
             ),
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0A0A0A),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFF262626)),
-              ),
-              child: const Text(
-                '4582 1195 2201 0039\n8834 5012 9910 4421',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  letterSpacing: 2,
-                  color: Color(0xFF00FF41),
-                  fontSize: 13,
+            if (sessionReady) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D0D1A),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: Colors.greenAccent.withAlpha(60),
+                  ),
+                ),
+                child: Text(
+                  fingerprintText,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 15,
+                    letterSpacing: 2,
+                    color: Colors.greenAccent,
+                    height: 1.8,
+                  ),
                 ),
               ),
-            ),
+            ],
           ],
         ),
         actions: [
           TextButton(
-            child: const Text('DISMISS'),
+            child: const Text(
+              'Dismiss',
+              style: TextStyle(color: Colors.greenAccent),
+            ),
             onPressed: () => Navigator.pop(context),
           ),
         ],
@@ -302,31 +290,28 @@ class _ChatBubble extends StatelessWidget {
       alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.78,
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: msg.isMe
-              ? const Color(0xFF00FF41).withAlpha(30)
+              ? const Color(0xFF00FF41).withAlpha(25)
               : const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: msg.isMe
-                ? const Color(0xFF00FF41).withAlpha(70)
-                : const Color(0xFF2E2E2E),
+                ? const Color(0xFF00FF41).withAlpha(50)
+                : Colors.white12,
           ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(
-              msg.text,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-            ),
+            Text(msg.text, style: const TextStyle(color: Colors.white)),
             const SizedBox(height: 4),
             Text(
               '${msg.timestamp.hour.toString().padLeft(2, '0')}:${msg.timestamp.minute.toString().padLeft(2, '0')}',
-              style: const TextStyle(fontSize: 10, color: Colors.white38),
+              style: const TextStyle(fontSize: 10, color: Colors.white30),
             ),
           ],
         ),

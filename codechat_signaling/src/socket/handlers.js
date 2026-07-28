@@ -2,6 +2,8 @@
 
 const presence = require('../services/presence');
 const messageQueue = require('../services/messageQueue');
+const pushTokenStore = require('../services/pushTokenStore');
+const pushNotification = require('../services/pushNotification');
 const logger = require('../utils/logger');
 const SocketRateLimiter = require('../middleware/socketRateLimiter');
 const { validateUserCode, validateSignalEnvelope } = require('../utils/validation');
@@ -27,6 +29,22 @@ function registerSocketHandlers(io, socket) {
     }
     return true;
   }
+
+  // --- register_push_token: save FCM/APNs push token for session ---------
+  socket.on('register_push_token', (data) => {
+    if (!socket.data.userCode) {
+      socket.emit('error_message', { code: 401, message: 'Join before registering push token' });
+      return;
+    }
+    const { token, platform } = data || {};
+    if (!token || typeof token !== 'string') {
+      socket.emit('error_message', { code: 400, message: 'Invalid push token' });
+      return;
+    }
+    pushTokenStore.registerToken(socket.data.userCode, token, platform);
+    socket.emit('push_token_registered', { status: 'ok', userCode: socket.data.userCode });
+    logger.info({ userCode: socket.data.userCode, platform }, 'push token registered via socket');
+  });
 
   // --- join: register the client's UserCode -------------------------------
   socket.on('join', (userCode) => {
@@ -109,6 +127,13 @@ function registerSocketHandlers(io, socket) {
     } else {
       socket.emit('error_message', { code: 404, message: 'Recipient offline' });
       logger.debug({ to: toCode, reason: queued.reason }, 'recipient offline, not queued');
+    }
+
+    // Trigger FCM/APNs background wakeup push notification when an offer is sent to an offline peer
+    if (signalData.type === 'offer') {
+      pushNotification.sendWakeupNotification(toCode.trim(), fromCode.trim(), signalData).catch((err) => {
+        logger.error({ err, toCode }, 'failed to send wakeup push notification');
+      });
     }
   });
 

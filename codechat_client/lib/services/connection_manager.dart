@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'p2p_service.dart';
+import 'push_service.dart';
 import 'signal_service.dart';
 
 /// Orchestrates Signaling, WebRTC, and Signal Protocol encryption flows.
@@ -9,18 +10,35 @@ class ConnectionManager {
   late io.Socket _socket;
   final P2PService _p2p = P2PService();
   final SignalService _signal;
+  final PushService? _pushService;
   final String _localUserCode;
   final Map<String, String> _peerStatus = {};
+  String? _lastServerUrl;
 
   // External callbacks
   Function(String message, String fromCode)? onSecureMessageReceived;
   Function(String fromCode)? onIncomingConnection;
   Function(String peerCode, String status)? onPeerStatusChanged;
 
-  ConnectionManager(this._signal, this._localUserCode);
+  ConnectionManager(this._signal, this._localUserCode, {PushService? pushService})
+      : _pushService = pushService {
+    _subscribeToPushWakeup();
+  }
+
+  void _subscribeToPushWakeup() {
+    _pushService?.onBackgroundWakeup.listen((event) {
+      // ignore: avoid_print
+      print('Background push wakeup received from ${event.fromCode}');
+      if (_lastServerUrl != null) {
+        // Reconnect to signaling server to flush pending offers queued while in background
+        connect(_lastServerUrl!);
+      }
+    });
+  }
 
   /// Connects to the signaling server and registers the local user.
   void connect(String serverUrl) {
+    _lastServerUrl = serverUrl;
     _socket = io.io(serverUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': false,
@@ -32,6 +50,7 @@ class ConnectionManager {
       // ignore: avoid_print
       print('Connected to Signaling Server');
       _socket.emit('join', _localUserCode);
+      _pushService?.registerPushTokenWithSocket(_socket);
     });
 
     _socket.onDisconnect((_) {

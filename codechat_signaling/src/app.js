@@ -10,6 +10,8 @@ const config = require('./config');
 const logger = require('./utils/logger');
 const healthRoutes = require('./routes/health');
 const iceRoutes = require('./routes/ice');
+const preKeyRoutes = require('./routes/prekey');
+const pushRoutes = require('./routes/push');
 
 /**
  * Builds the Express application (HTTP surface: health, metrics, ICE config).
@@ -26,7 +28,7 @@ function createApp() {
   app.use(
     cors({
       origin: config.cors.origins.includes('*') ? true : config.cors.origins,
-      methods: ['GET', 'POST'],
+      methods: ['GET', 'POST', 'PUT', 'DELETE'],
     })
   );
   app.use(express.json({ limit: '64kb' }));
@@ -43,6 +45,8 @@ function createApp() {
 
   app.use(healthRoutes);
   app.use(iceRoutes);
+  app.use(preKeyRoutes);
+  app.use('/api', pushRoutes);
 
   app.get('/', (req, res) => {
     res.json({

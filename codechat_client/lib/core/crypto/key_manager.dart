@@ -1,33 +1,108 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:bip39/bip39.dart' as bip39;
+import 'package:crypto/crypto.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart' as signal;
 
 /// Manages BIP39 mnemonic generation and Signal identity key derivation.
 class KeyManager {
+  // HKDF application context string bound to this app and key type.
+  // Changing this value is a breaking change — all existing sessions are invalidated.
+  static const String _hkdfInfo = 'GhostMessenger/IdentityKey/v1';
+
   /// Generates a new 12-word mnemonic passphrase.
   static String generateMnemonic() {
     return bip39.generateMnemonic();
   }
 
-  /// Derives the root seed bytes from a mnemonic.
+  /// Derives the 64-byte root seed from a BIP39 mnemonic.
   static Uint8List deriveSeed(String mnemonic) {
     return Uint8List.fromList(bip39.mnemonicToSeed(mnemonic));
   }
 
-  /// Generates Signal Protocol IdentityKeyPair from the mnemonic seed.
-  ///
-  /// Uses the first 32 bytes of the SHA-512 seed as the Curve25519
-  /// private key, then derives the public key from it.
-  static IdentityKeyPair generateIdentityFromMnemonic(String mnemonic) {
-    // Generate a keypair using libsignal's built-in secure generator.
-    // For deterministic derivation from mnemonic, a KDF step would
-    // be needed in production. For MVP we generate fresh keys and 
-    // store them; the mnemonic is used for backup/export only.
-    return signal.generateIdentityKeyPair();
+  // ─────────────────────────────────────────────────────────────────────────
+  //  HKDF-SHA-256 helpers
+  //  RFC 5869 — implemented using the `crypto` package (dart:typed_data).
+  //
+  //  We do not use a random salt because the BIP39 seed (64 bytes of
+  //  PBKDF2-derived entropy) already provides the full security budget.
+  //  A fixed, all-zeros salt is the RFC-recommended default for deterministic
+  //  derivation from high-entropy input material.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// HKDF-Extract: PRK = HMAC-SHA256(salt, ikm)
+  static Uint8List _hkdfExtract(Uint8List salt, Uint8List ikm) {
+    final hmac = Hmac(sha256, salt);
+    return Uint8List.fromList(hmac.convert(ikm).bytes);
   }
 
-  /// Generates a fresh IdentityKeyPair using secure random.
+  /// HKDF-Expand: produces [length] bytes of output keying material.
+  /// [length] must be ≤ 32 * 255 bytes (one hash-length block is sufficient here).
+  static Uint8List _hkdfExpand(Uint8List prk, Uint8List info, int length) {
+    final hmac = Hmac(sha256, prk);
+    // T(1) = HMAC-SHA256(PRK, info || 0x01)  (first and only block for ≤32 bytes)
+    final input = Uint8List(info.length + 1);
+    input.setAll(0, info);
+    input[info.length] = 0x01;
+    final t1 = Uint8List.fromList(hmac.convert(input).bytes);
+    return t1.sublist(0, length);
+  }
+
+  /// Derives a deterministic 32-byte Curve25519 private key scalar from
+  /// the BIP39 seed using HKDF-SHA-256.
+  static Uint8List _derivePrivateKeyBytes(Uint8List seed) {
+    // Salt: 32 zero bytes (RFC 5869 §2.2 — "not provided" default for high-entropy IKM)
+    final salt = Uint8List(32);
+    final info = Uint8List.fromList(utf8.encode(_hkdfInfo));
+
+    final prk = _hkdfExtract(salt, seed);
+    return _hkdfExpand(prk, info, 32);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Signal IdentityKeyPair derivation
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Derives a deterministic Signal [IdentityKeyPair] from a BIP39 mnemonic.
+  ///
+  /// The derivation path is:
+  ///   BIP39 seed (64 B)
+  ///     → HKDF-SHA256(salt=0x00*32, info="GhostMessenger/IdentityKey/v1")
+  ///     → 32-byte Curve25519 private scalar
+  ///     → Curve25519 public key (via libsignal Curve API)
+  ///     → IdentityKeyPair
+  ///
+  /// The same mnemonic always produces the same key pair, enabling recovery
+  /// from a seed phrase backup.
+  static IdentityKeyPair generateIdentityFromMnemonic(String mnemonic) {
+    final seed = deriveSeed(mnemonic);
+    return _identityKeyPairFromSeedBytes(seed);
+  }
+
+  /// Internal: builds an [IdentityKeyPair] from 64 bytes of seed material by
+  /// applying HKDF and constructing the Curve25519 key pair.
+  static IdentityKeyPair _identityKeyPairFromSeedBytes(Uint8List seed) {
+    final privBytes = _derivePrivateKeyBytes(seed);
+
+    // Apply the Curve25519 private key clamping as specified in RFC 7748 §5.
+    // libsignal_protocol_dart's DjbECPrivateKey accepts raw 32-byte scalars
+    // and performs clamping internally, but we do it explicitly to stay
+    // portable if the underlying library changes.
+    privBytes[0] &= 248;   // clear bits 0-2
+    privBytes[31] &= 127;  // clear bit 255
+    privBytes[31] |= 64;   // set bit 254
+
+    // Construct the private key and derive the matching public key.
+    final privateKey = Curve.decodePrivatePoint(privBytes);
+    final publicKey = Curve.generatePublicKey(privateKey);
+    final identityKey = IdentityKey(publicKey);
+
+    return IdentityKeyPair(identityKey, privateKey);
+  }
+
+  /// Generates a fresh random [IdentityKeyPair] (used when no mnemonic is
+  /// available, e.g. during first-boot before the user writes down their phrase).
   static IdentityKeyPair generateRegistrationKeyPair() {
     return signal.generateIdentityKeyPair();
   }
@@ -37,17 +112,27 @@ class KeyManager {
     return signal.generateRegistrationId(false);
   }
 
+  /// Derives a deterministic registration ID from the same seed material.
+  ///
+  /// Signal registration IDs are 14-bit values (1–16380).  We take two bytes
+  /// from a second HKDF expansion (different info string) and mask to 14 bits,
+  /// guaranteeing the result is always in range and reproducible.
+  static int deriveRegistrationIdFromMnemonic(String mnemonic) {
+    final seed = deriveSeed(mnemonic);
+    final salt = Uint8List(32);
+    final info = Uint8List.fromList(
+      utf8.encode('GhostMessenger/RegistrationId/v1'),
+    );
+    final prk = _hkdfExtract(salt, seed);
+    final idBytes = _hkdfExpand(prk, info, 2);
+    // Mask to 14 bits, then clamp to [1, 16380].
+    final raw = ((idBytes[0] & 0x3F) << 8) | idBytes[1];
+    return (raw % 16380) + 1;
+  }
+
   /// Generates a batch of one-time PreKeys.
   static List<PreKeyRecord> generatePreKeys(int start, int count) {
     return signal.generatePreKeys(start, count);
-  }
-
-  /// Validates whether a 12-word mnemonic phrase is valid BIP39.
-  static bool validateMnemonic(String mnemonic) {
-    final clean = mnemonic.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-    final words = clean.split(' ');
-    if (words.length != 12 && words.length != 24) return false;
-    return bip39.validateMnemonic(clean);
   }
 
   /// Generates a signed pre-key.
@@ -58,4 +143,3 @@ class KeyManager {
     return signal.generateSignedPreKey(identityKeyPair, signedPreKeyId);
   }
 }
-
