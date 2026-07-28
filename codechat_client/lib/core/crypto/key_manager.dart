@@ -42,6 +42,14 @@ class KeyManager {
     return signal.generatePreKeys(start, count);
   }
 
+  /// Validates whether a 12-word mnemonic phrase is valid BIP39.
+  static bool validateMnemonic(String mnemonic) {
+    final clean = mnemonic.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    final words = clean.split(' ');
+    if (words.length != 12 && words.length != 24) return false;
+    return bip39.validateMnemonic(clean);
+  }
+
   /// Generates a signed pre-key.
   static SignedPreKeyRecord generateSignedPreKey(
     IdentityKeyPair identityKeyPair,

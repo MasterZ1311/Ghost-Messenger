@@ -18,20 +18,55 @@ services:
       timeout: 3s
       retries: 3
 
-  # Optional self-hosted TURN server for reliable NAT traversal.
-  # Uncomment and set TURN_SECRET (shared with the signaling service above)
-  # to enable ephemeral TURN credentials via /api/ice-servers.
-  #
-  # turn:
-  #   image: coturn/coturn:latest
-  #   container_name: codechat-turn
-  #   restart: unless-stopped
-  #   network_mode: host
-  #   command: >
-  #     -n
-  #     --use-auth-secret
-  #     --static-auth-secret=${TURN_SECRET}
-  #     --realm=ghostmessenger.io
-  #     --no-tls
-  #     --no-dtls
-  #     --no-cli
+  # Redis service for horizontal scaling
+  redis:
+    image: redis:7-alpine
+    container_name: codechat-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # TURN server (coturn) for symmetric NAT traversal
+  turn:
+    image: coturn/coturn:latest
+    container_name: codechat-turn
+    restart: unless-stopped
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+    environment:
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_TTL_SECONDS: 1800
+      TURN_REALM: ${TURN_REALM}
+    command: >
+      -n
+      --use-auth-secret
+      --static-auth-secret=${TURN_SECRET}
+      --realm=${TURN_REALM}
+      --no-tls
+      --no-dtls
+      --no-cli
+
+  # Caddy reverse proxy for HTTPS/WSS and automatic TLS
+  caddy:
+    image: caddy:latest
+    container_name: codechat-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      CADDY_AGREED: "yes"
+
+volumes:
+  caddy_data:
+  caddy_config:

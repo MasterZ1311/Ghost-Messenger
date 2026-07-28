@@ -99,8 +99,11 @@ const config = Object.freeze({
     },
   },
 
-  // Graceful shutdown grace period
-  shutdownTimeoutMs: parseInteger(process.env.SHUTDOWN_TIMEOUT_MS, 10000),
+  // Redis configuration for adapter
+  redis: {
+    host: process.env.REDIS_HOST || 'redis',
+    port: parseInteger(process.env.REDIS_PORT, 6379),
+  },
 });
 
 module.exports = config;

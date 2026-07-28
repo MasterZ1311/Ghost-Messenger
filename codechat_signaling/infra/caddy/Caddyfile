@@ -1,0 +1,25 @@
+## Caddyfile for Ghost Messenger production
+# Replace `yourdomain.com` with your actual domain (e.g., chat.example.com)
+
+yourdomain.com {
+    # Automatic HTTPS via Let's Encrypt (Caddy handles cert acquisition & renewal)
+    tls {
+        # optional: email = your-email@example.com
+        # You can add additional TLS options here if needed
+    }
+
+    # Proxy HTTP & WebSocket traffic to the internal signaling service
+    reverse_proxy signaling:3000 {
+        # Preserve host header for CORS checks
+        header_up Host {host}
+        # Support WebSocket upgrades
+        transport http {
+            protocols h2c h1
+        }
+    }
+
+    # Optional: health check endpoint
+    handle_path /health {
+        respond "OK" 200
+    }
+}

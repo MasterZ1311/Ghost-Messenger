@@ -1,25 +1,27 @@
 import 'dart:convert';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'p2p_service.dart';
 import 'signal_service.dart';
 
 /// Orchestrates Signaling, WebRTC, and Signal Protocol encryption flows.
 class ConnectionManager {
-  late IO.Socket _socket;
+  late io.Socket _socket;
   final P2PService _p2p = P2PService();
   final SignalService _signal;
   final String _localUserCode;
+  final Map<String, String> _peerStatus = {};
 
   // External callbacks
   Function(String message, String fromCode)? onSecureMessageReceived;
   Function(String fromCode)? onIncomingConnection;
+  Function(String peerCode, String status)? onPeerStatusChanged;
 
   ConnectionManager(this._signal, this._localUserCode);
 
   /// Connects to the signaling server and registers the local user.
   void connect(String serverUrl) {
-    _socket = IO.io(serverUrl, <String, dynamic>{
+    _socket = io.io(serverUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': false,
     });
@@ -60,6 +62,7 @@ class ConnectionManager {
 
   /// Initiates a secure P2P connection to the target peer.
   Future<void> initiateSecureConnection(String targetCode) async {
+    _setPeerStatus(targetCode, 'connecting');
     await _p2p.initializePeerConnection();
     _setupP2PCallbacks(targetCode);
 
@@ -80,6 +83,7 @@ class ConnectionManager {
     String fromCode,
     Map<String, dynamic> signal,
   ) async {
+    _setPeerStatus(fromCode, 'connecting');
     onIncomingConnection?.call(fromCode);
     await _p2p.initializePeerConnection();
     _setupP2PCallbacks(fromCode);
@@ -132,6 +136,27 @@ class ConnectionManager {
       });
     };
 
+    // Track peer connection states
+    _p2p.onConnectionStateChange = (state) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _setPeerStatus(remoteCode, 'online');
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnecting) {
+        _setPeerStatus(remoteCode, 'connecting');
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
+                 state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+                 state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+        _setPeerStatus(remoteCode, 'offline');
+      }
+    };
+
+    _p2p.onDataChannelStateChange = (state) {
+      if (state == RTCDataChannelState.RTCDataChannelOpen) {
+        _setPeerStatus(remoteCode, 'online');
+      } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
+        _setPeerStatus(remoteCode, 'offline');
+      }
+    };
+
     // Handle incoming encrypted messages
     _p2p.onMessageReceived = (rawPayload) async {
       try {
@@ -146,6 +171,15 @@ class ConnectionManager {
         print('Decryption error: $e');
       }
     };
+  }
+
+  void _setPeerStatus(String peerCode, String status) {
+    _peerStatus[peerCode] = status;
+    onPeerStatusChanged?.call(peerCode, status);
+  }
+
+  String getPeerStatus(String peerCode) {
+    return _peerStatus[peerCode] ?? 'offline';
   }
 
   /// Sends a Signal-encrypted message over the P2P DataChannel.

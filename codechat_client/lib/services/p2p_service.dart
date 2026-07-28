@@ -4,6 +4,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 typedef OnIceCandidateCallback = void Function(RTCIceCandidate candidate);
 typedef OnMessageCallback = void Function(String message);
 typedef OnConnectionStateCallback = void Function(RTCPeerConnectionState state);
+typedef OnDataChannelStateCallback = void Function(RTCDataChannelState state);
 
 /// Manages WebRTC PeerConnection and DataChannel for P2P messaging.
 class P2PService {
@@ -14,6 +15,7 @@ class P2PService {
   OnMessageCallback? onMessageReceived;
   OnIceCandidateCallback? onIceCandidate;
   OnConnectionStateCallback? onConnectionStateChange;
+  OnDataChannelStateCallback? onDataChannelStateChange;
 
   // ICE configuration
   final Map<String, dynamic> _iceConfig = {
@@ -113,6 +115,7 @@ class P2PService {
     _dataChannel!.onDataChannelState = (state) {
       // ignore: avoid_print
       print('DataChannel state: $state');
+      onDataChannelStateChange?.call(state);
     };
   }
 }
