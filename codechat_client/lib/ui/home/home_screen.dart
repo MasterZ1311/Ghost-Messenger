@@ -1,249 +1,228 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/storage/database_helper.dart';
 import '../../services/app_state.dart';
-import '../../core/crypto/user_code_utils.dart';
+import '../../services/connection_manager.dart';
 import '../chat/chat_screen.dart';
+import '../chat/contact_dialog.dart';
 
+/// Main hub displaying active conversations, user's UserCode, and connection status.
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final ConnectionManager? connectionManager;
+
+  const HomeScreen({
+    super.key,
+    this.connectionManager,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final AppState _appState = AppState.instance;
+  List<Map<String, dynamic>> _recentChats = [];
+  bool _isLoading = true;
+
+  ConnectionManager? get _cm => widget.connectionManager ?? AppState.instance.connectionManager;
 
   @override
   void initState() {
     super.initState();
-    _appState.addListener(_onAppStateChanged);
-    _appState.loadRecentChats();
+    _loadRecentChats();
+    _setupConnectionListeners();
   }
 
-  @override
-  void dispose() {
-    _appState.removeListener(_onAppStateChanged);
-    super.dispose();
+  Future<void> _loadRecentChats() async {
+    final chats = await DatabaseHelper().getRecentChats();
+    if (mounted) {
+      setState(() {
+        _recentChats = chats;
+        _isLoading = false;
+      });
+    }
   }
 
-  void _onAppStateChanged() {
-    if (mounted) setState(() {});
+  void _setupConnectionListeners() {
+    final cm = _cm;
+    if (cm == null) return;
+
+    cm.onSignalingStatusChanged = (connected) {
+      if (mounted) setState(() {});
+    };
+
+    cm.onSecureMessageReceived = (msg, fromCode) {
+      _loadRecentChats();
+    };
+
+    cm.onIncomingConnection = (fromCode) {
+      _loadRecentChats();
+    };
   }
 
-  void _showAddPeerDialog() {
-    final controller = TextEditingController();
-    String? errorText;
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.person_add_outlined, color: Color(0xFF00FF41)),
-                  SizedBox(width: 10),
-                  Text('New Peer Connection'),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Enter your peer's 8-character UserCode to start an encrypted P2P session:",
-                    style: TextStyle(fontSize: 13, color: Colors.white70),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: controller,
-                    textCapitalization: TextCapitalization.characters,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: 'e.g. 5J9L-2P4X',
-                      errorText: errorText,
-                    ),
-                    onChanged: (val) {
-                      if (errorText != null) {
-                        setDialogState(() => errorText = null);
-                      }
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('CANCEL', style: TextStyle(color: Colors.white54)),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    final rawCode = controller.text.trim().toUpperCase();
-                    if (!UserCodeUtils.isValidFormat(rawCode)) {
-                      setDialogState(() {
-                        errorText = 'Invalid 8-character code format';
-                      });
-                      return;
-                    }
-
-                    // Format code as XXXX-XXXX if valid
-                    final clean = rawCode.replaceAll('-', '');
-                    final formattedCode = '${clean.substring(0, 4)}-${clean.substring(4)}';
-
-                    final currentContext = context;
-                    Navigator.pop(currentContext);
-
-                    // Initiate connection & navigate to ChatScreen
-                    await _appState.initiatePeerConnection(formattedCode);
-
-                    if (!currentContext.mounted) return;
-                    Navigator.push(
-                      currentContext,
-                      MaterialPageRoute(
-                        builder: (_) => ChatScreen(remoteCode: formattedCode),
-                      ),
-                    );
-                  },
-                  child: const Text('CONNECT'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+  void _openChat(String remoteCode) async {
+    final cm = _cm;
+    if (cm == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(
+          remoteCode: remoteCode,
+          connectionManager: cm,
+        ),
+      ),
     );
+    _loadRecentChats();
+  }
+
+  void _startNewChat() async {
+    final remoteCode = await ContactDialog.show(context);
+    if (remoteCode != null && remoteCode.isNotEmpty) {
+      _openChat(remoteCode);
+    }
+  }
+
+  void _copyUserCode() {
+    final code = _cm?.localUserCode ?? AppState.instance.localUserCode ?? '';
+    if (code.isNotEmpty) {
+      Clipboard.setData(ClipboardData(text: code));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Your UserCode copied to clipboard'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final myCode = _appState.localUserCode ?? 'UNKNOWN';
-    final recentChats = _appState.recentChats;
+    final isConnected = _cm?.isSignalingConnected ?? false;
+    final userCode = _cm?.localUserCode ?? AppState.instance.localUserCode ?? 'UNKNOWN';
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: Row(
           children: [
-            const Text('GHOST MESSENGER'),
-            Row(
-              children: [
-                const Text(
-                  'My Code: ',
-                  style: TextStyle(fontSize: 11, color: Colors.white54),
-                ),
-                Text(
-                  myCode,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF00FF41),
-                  ),
-                ),
-              ],
+            Image.asset(
+              'assets/images/logo.png',
+              width: 28,
+              height: 28,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Ghost Messenger',
+              style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1),
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.copy_rounded, size: 18),
-            tooltip: 'Copy My UserCode',
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: myCode));
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('UserCode $myCode copied')),
-              );
-            },
+            icon: const Icon(Icons.info_outline_rounded),
+            tooltip: 'About Ghost Messenger',
+            onPressed: () => _showAboutDialog(context),
           ),
         ],
       ),
-      body: recentChats.isEmpty
-          ? _buildEmptyState()
-          : ListView.separated(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: recentChats.length,
-              separatorBuilder: (_, __) => const Divider(color: Color(0xFF1F1F1F), height: 1),
-              itemBuilder: (context, index) {
-                final chat = recentChats[index];
-                final peerCode = chat['remote_code'] as String;
-                final lastMsg = chat['content'] as String;
-                final isMe = (chat['is_me'] as int) == 1;
-                final rawTime = chat['timestamp'] as String;
-                final time = DateTime.tryParse(rawTime) ?? DateTime.now();
-
-                final status = _appState.getPeerStatus(peerCode);
-
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  leading: Stack(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: const Color(0xFF1E1E1E),
-                        child: Text(
-                          peerCode.substring(0, 2),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: _StatusBadge(status: status),
-                      ),
-                    ],
-                  ),
-                  title: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        peerCode,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'monospace',
-                          fontSize: 15,
-                        ),
-                      ),
-                      Text(
-                        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
-                        style: const TextStyle(fontSize: 11, color: Colors.white38),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text(
-                    isMe ? 'You: $lastMsg' : lastMsg,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54, fontSize: 13),
-                  ),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ChatScreen(remoteCode: peerCode),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+      body: Column(
+        children: [
+          _buildIdentityHeader(userCode, isConnected),
+          Expanded(
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation(Color(0xFF00FF41)),
+                    ),
+                  )
+                : _recentChats.isEmpty
+                    ? _buildEmptyState()
+                    : _buildChatsList(),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddPeerDialog,
+        onPressed: _startNewChat,
         backgroundColor: const Color(0xFF00FF41),
         foregroundColor: Colors.black,
-        icon: const Icon(Icons.add_comment_rounded),
-        label: const Text(
-          'NEW SESSION',
-          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.0),
-        ),
+        icon: const Icon(Icons.message_rounded),
+        label: const Text('NEW CHAT', style: TextStyle(fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
+  Widget _buildIdentityHeader(String userCode, bool isConnected) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'YOUR USER CODE',
+                style: TextStyle(
+                  fontSize: 11,
+                  letterSpacing: 1.5,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white54,
+                ),
+              ),
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: isConnected ? const Color(0xFF00FF41) : Colors.amber,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    isConnected ? 'SIGNALING READY' : 'CONNECTING...',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1,
+                      color: isConnected ? const Color(0xFF00FF41) : Colors.amber,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                userCode,
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 3,
+                  color: Color(0xFF00FF41),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.copy_rounded, color: Colors.white70),
+                tooltip: 'Copy UserCode',
+                onPressed: _copyUserCode,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Share this code with friends to start an end-to-end encrypted session.',
+            style: TextStyle(fontSize: 12, color: Colors.white38),
+          ),
+        ],
       ),
     );
   }
@@ -255,47 +234,104 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.forum_outlined, size: 64, color: Colors.white.withAlpha(40)),
+            Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 64,
+              color: Colors.white.withAlpha(40),
+            ),
             const SizedBox(height: 16),
             const Text(
-              'No Active P2P Sessions',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white70),
+              'No Active Conversations',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             const Text(
-              'Tap "NEW SESSION" below to connect to a peer by entering their 8-character UserCode.',
+              'Tap "NEW CHAT" below and enter a friend\'s 8-character UserCode to start messaging.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white38, fontSize: 13),
+              style: TextStyle(color: Colors.white54, fontSize: 13),
             ),
           ],
         ),
       ),
     );
   }
-}
 
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  const _StatusBadge({required this.status});
+  Widget _buildChatsList() {
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: _recentChats.length,
+      separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
+      itemBuilder: (context, index) {
+        final chat = _recentChats[index];
+        final remoteCode = chat['remote_code'] as String;
+        final lastMsg = chat['content'] as String;
+        final isMe = (chat['is_me'] as int) == 1;
+        final timestamp = DateTime.parse(chat['timestamp'] as String);
 
-  @override
-  Widget build(BuildContext context) {
-    Color color;
-    if (status == 'online') {
-      color = const Color(0xFF00FF41); // Live Green
-    } else if (status == 'connecting') {
-      color = const Color(0xFFFFC107); // Amber
-    } else {
-      color = const Color(0xFF666666); // Offline Grey
-    }
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          leading: CircleAvatar(
+            backgroundColor: const Color(0xFF00FF41).withAlpha(30),
+            child: const Icon(Icons.lock_rounded, color: Color(0xFF00FF41), size: 20),
+          ),
+          title: Text(
+            remoteCode,
+            style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1),
+          ),
+          subtitle: Text(
+            '${isMe ? 'You: ' : ''}$lastMsg',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white54, fontSize: 13),
+          ),
+          trailing: Text(
+            '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}',
+            style: const TextStyle(fontSize: 11, color: Colors.white30),
+          ),
+          onTap: () => _openChat(remoteCode),
+        );
+      },
+    );
+  }
 
-    return Container(
-      width: 12,
-      height: 12,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFF0A0A0A), width: 2),
+  void _showAboutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: Row(
+          children: [
+            Image.asset(
+              'assets/images/logo.png',
+              width: 32,
+              height: 32,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(width: 10),
+            const Text('Ghost Messenger'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Zero-knowledge, peer-to-peer end-to-end encrypted messaging powered by Signal Protocol and WebRTC.',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            SizedBox(height: 12),
+            Text(
+              '• No phone number or email required\n• Self-sovereign BIP39 cryptographic identity\n• Direct P2P DataChannels\n• Encrypted local SQLCipher storage',
+              style: TextStyle(color: Colors.white54, fontSize: 12, height: 1.5),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(color: Color(0xFF00FF41))),
+          ),
+        ],
       ),
     );
   }

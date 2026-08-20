@@ -59,10 +59,11 @@ class _RestoreScreenState extends State<RestoreScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(
-                  Icons.vpn_key_rounded,
-                  size: 64,
-                  color: Color(0xFF00FF41),
+                Image.asset(
+                  'assets/images/logo.png',
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.contain,
                 ),
                 const SizedBox(height: 24),
                 const Text(

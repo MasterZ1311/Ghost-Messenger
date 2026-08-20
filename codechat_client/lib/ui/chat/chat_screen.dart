@@ -1,27 +1,19 @@
-import 'dart:convert';
 import 'dart:typed_data';
-import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import '../../core/storage/database_helper.dart';
+import '../../services/connection_manager.dart';
 
-/// Chat screen for a P2P encrypted session.
-///
-/// Accepts optional identity key bytes for both the local user and the remote
-/// peer.  When both are present, a Signal-style safety number (fingerprint) is
-/// computed and shown in the verification dialog.
+/// Chat screen for a live P2P encrypted session.
 class ChatScreen extends StatefulWidget {
   final String remoteCode;
-
-  /// The local user's Signal identity public key bytes (33-byte compressed
-  /// Curve25519 key as serialized by libsignal_protocol_dart).
+  final ConnectionManager connectionManager;
   final Uint8List? localIdentityKey;
-
-  /// The remote peer's Signal identity public key bytes.
-  /// May be null until the session is fully established.
   final Uint8List? remoteIdentityKey;
 
   const ChatScreen({
     super.key,
     required this.remoteCode,
+    required this.connectionManager,
     this.localIdentityKey,
     this.remoteIdentityKey,
   });
@@ -33,6 +25,59 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final List<Message> _messages = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+    _setupListeners();
+  }
+
+  Future<void> _loadHistory() async {
+    final rows = await DatabaseHelper().getMessagesForPeer(widget.remoteCode);
+    if (mounted) {
+      setState(() {
+        _messages.clear();
+        for (final row in rows.reversed) {
+          _messages.add(
+            Message(
+              text: row['content'] as String,
+              isMe: (row['is_me'] as int) == 1,
+              timestamp: DateTime.parse(row['timestamp'] as String),
+            ),
+          );
+        }
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _setupListeners() {
+    widget.connectionManager.onSecureMessageReceived = (plaintext, fromCode) {
+      if (fromCode == widget.remoteCode && mounted) {
+        setState(() {
+          _messages.insert(
+            0,
+            Message(
+              text: plaintext,
+              isMe: false,
+              timestamp: DateTime.now(),
+            ),
+          );
+        });
+      }
+    };
+
+    widget.connectionManager.onPeerStatusChanged = (peerCode, status) {
+      if (peerCode == widget.remoteCode && mounted) {
+        setState(() {});
+      }
+    };
+
+    // Auto-initiate WebRTC P2P connection to peer
+    widget.connectionManager.initiateSecureConnection(widget.remoteCode);
+  }
 
   @override
   void dispose() {
@@ -40,47 +85,111 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'online':
+        return const Color(0xFF00FF41);
+      case 'connecting':
+        return Colors.amberAccent;
+      default:
+        return Colors.white38;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final status = widget.connectionManager.getPeerStatus(widget.remoteCode);
+
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('P2P SESSION'),
             Text(
-              'Peer: ${widget.remoteCode}',
-              style: const TextStyle(fontSize: 12, color: Colors.greenAccent),
+              widget.remoteCode,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                letterSpacing: 2,
+                fontSize: 16,
+              ),
+            ),
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(status),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  status.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: _getStatusColor(status),
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.security, size: 18),
+            icon: const Icon(Icons.verified_user_rounded, size: 20),
+            color: const Color(0xFF00FF41),
             onPressed: _showSafetyNumbers,
             tooltip: 'Verify Safety Numbers',
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              reverse: true,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _ChatBubble(msg: msg),
-                );
-              },
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation(Color(0xFF00FF41)),
+              ),
+            )
+          : Column(
+              children: [
+                Expanded(
+                  child: _messages.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.lock_outline_rounded,
+                                size: 48,
+                                color: Colors.white24,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'End-to-End Encrypted Session\nMessages with ${widget.remoteCode} are secure.',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Colors.white38, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          reverse: true,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          itemCount: _messages.length,
+                          itemBuilder: (context, index) {
+                            final msg = _messages[index];
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: _ChatBubble(msg: msg),
+                            );
+                          },
+                        ),
+                ),
+                _buildInputArea(),
+              ],
             ),
-          ),
-          _buildInputArea(),
-        ],
-      ),
     );
   }
 
@@ -102,10 +211,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   hintText: 'Type encrypted message...',
                   hintStyle: TextStyle(color: Colors.white38),
                 ),
+                onSubmitted: (_) => _sendMessage(),
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.send_rounded, color: Colors.greenAccent),
+              icon: const Icon(Icons.send_rounded, color: Color(0xFF00FF41)),
               onPressed: _sendMessage,
             ),
           ],
@@ -114,107 +224,54 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _sendMessage() {
-    if (_messageController.text.trim().isEmpty) return;
+  Future<void> _sendMessage() async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
 
+    _messageController.clear();
     setState(() {
       _messages.insert(
         0,
         Message(
-          text: _messageController.text.trim(),
+          text: text,
           isMe: true,
           timestamp: DateTime.now(),
         ),
       );
     });
-    _messageController.clear();
-  }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  //  Safety Numbers (Signal-style fingerprint)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Computes a Signal-style safety number from two Curve25519 identity keys.
-  ///
-  /// Algorithm:
-  ///   1. Canonically sort the two 33-byte key blobs lexicographically so that
-  ///      both sides of the session always produce the same string regardless
-  ///      of who was the initiator.
-  ///   2. Concatenate the sorted pair and hash with SHA-512.
-  ///   3. Take the first 30 bytes of the digest.
-  ///   4. Split into 6 groups of 5 bytes; interpret each group as a big-endian
-  ///      unsigned 40-bit integer, then take `value % 100000` to yield a
-  ///      5-digit decimal (zero-padded).  This matches Signal's specification.
-  ///
-  /// Returns a string like "05823 19302 44812 01947 33019 82741".
-  static String _computeFingerprint(
-    Uint8List localKey,
-    Uint8List remoteKey,
-  ) {
-    // Step 1 — canonical ordering (lexicographic byte comparison)
-    final Uint8List first;
-    final Uint8List second;
-
-    bool localIsFirst = true;
-    for (int i = 0; i < localKey.length && i < remoteKey.length; i++) {
-      if (localKey[i] < remoteKey[i]) {
-        localIsFirst = true;
-        break;
-      } else if (localKey[i] > remoteKey[i]) {
-        localIsFirst = false;
-        break;
+    try {
+      await widget.connectionManager.sendSecureMessage(widget.remoteCode, text);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Send error: $e')),
+        );
       }
     }
-    first = localIsFirst ? localKey : remoteKey;
-    second = localIsFirst ? remoteKey : localKey;
-
-    // Step 2 — SHA-512(first || second)
-    final combined = Uint8List(first.length + second.length)
-      ..setAll(0, first)
-      ..setAll(first.length, second);
-    final digest = sha512.convert(combined).bytes;
-
-    // Step 3 — first 30 bytes
-    final fingerprintBytes = Uint8List.fromList(digest.sublist(0, 30));
-
-    // Step 4 — 6 groups of 5 bytes → 5-digit decimal chunks
-    final buffer = StringBuffer();
-    for (int group = 0; group < 6; group++) {
-      final offset = group * 5;
-      // Interpret 5 bytes as a big-endian unsigned integer.
-      int value = 0;
-      for (int b = 0; b < 5; b++) {
-        value = (value << 8) | fingerprintBytes[offset + b];
-      }
-      // Reduce to 5 digits (mod 100000, zero-padded).
-      final chunk = (value % 100000).toString().padLeft(5, '0');
-      if (group > 0) buffer.write(' ');
-      buffer.write(chunk);
-    }
-    return buffer.toString();
   }
 
-  void _showSafetyNumbers() {
-    final localKey = widget.localIdentityKey;
-    final remoteKey = widget.remoteIdentityKey;
+  Future<void> _showSafetyNumbers() async {
+    final fingerprint = await widget.connectionManager.signalService
+        .computeSafetyNumbers(widget.remoteCode);
 
-    final bool sessionReady = localKey != null && remoteKey != null;
-    final String fingerprintText = sessionReady
-        ? _computeFingerprint(localKey, remoteKey)
-        : '—';
+    if (!mounted) return;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A2E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: const [
-            Icon(Icons.verified_user, color: Colors.greenAccent, size: 20),
-            SizedBox(width: 8),
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Colors.white12),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.verified_user_rounded, color: Color(0xFF00FF41), size: 22),
+            SizedBox(width: 10),
             Text(
               'Safety Numbers',
-              style: TextStyle(color: Colors.white, fontSize: 16),
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -222,48 +279,36 @@ class _ChatScreenState extends State<ChatScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              sessionReady
-                  ? 'Compare these numbers with your contact out-of-band to confirm the E2EE session has not been tampered with.'
-                  : 'Session not yet established.\nConnect to your peer to generate safety numbers.',
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            const Text(
+              'Compare these numbers with your contact out-of-band to confirm your end-to-end encryption is untampered:',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
             ),
             const SizedBox(height: 16),
-            if (sessionReady) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0D0D1A),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: Colors.greenAccent.withAlpha(60),
-                  ),
-                ),
-                child: Text(
-                  fingerprintText,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 15,
-                    letterSpacing: 2,
-                    color: Colors.greenAccent,
-                    height: 1.8,
-                  ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+              decoration: BoxDecoration(
+                color: Colors.black38,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF00FF41).withAlpha(80)),
+              ),
+              child: Text(
+                fingerprint,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 16,
+                  letterSpacing: 3,
+                  color: Color(0xFF00FF41),
+                  height: 1.6,
                 ),
               ),
-            ],
+            ),
           ],
         ),
         actions: [
           TextButton(
-            child: const Text(
-              'Dismiss',
-              style: TextStyle(color: Colors.greenAccent),
-            ),
+            child: const Text('Dismiss', style: TextStyle(color: Color(0xFF00FF41))),
             onPressed: () => Navigator.pop(context),
           ),
         ],
