@@ -3,6 +3,10 @@
 </p>
 
 <p align="center">
+  <img src="GM_logo-removebg-preview.png" alt="Ghost Messenger Logo" width="120"/>
+</p>
+
+<p align="center">
   <a href="https://github.com/MasterZ1311/Ghost-Messenger/blob/MZ-Main/codechat_signaling/package.json">
     <img src="https://img.shields.io/badge/signaling-v2.0.0-00FF41?style=for-the-badge&logo=node.js&logoColor=white" alt="Signaling Version"/>
   </a>
