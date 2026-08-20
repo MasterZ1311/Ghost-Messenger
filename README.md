@@ -1,22 +1,9 @@
-<p align="center">
-  <img src="banner.png" alt="Ghost Messenger Banner" width="100%"/>
-</p>
+
 
 <p align="center">
   <img src="GM_logo-removebg-preview.png" alt="Ghost Messenger Logo" width="120"/>
 </p>
 
-<p align="center">
-  <a href="https://github.com/MasterZ1311/Ghost-Messenger/blob/MZ-Main/codechat_signaling/package.json">
-    <img src="https://img.shields.io/badge/signaling-v2.0.0-00FF41?style=for-the-badge&logo=node.js&logoColor=white" alt="Signaling Version"/>
-  </a>
-  <a href="https://github.com/MasterZ1311/Ghost-Messenger/blob/MZ-Main/codechat_client/pubspec.yaml">
-    <img src="https://img.shields.io/badge/client-v1.0.0-00FF41?style=for-the-badge&logo=flutter&logoColor=white" alt="Client Version"/>
-  </a>
-  <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="License"/>
-  <img src="https://img.shields.io/badge/platform-Flutter%20Web-02569B?style=for-the-badge&logo=flutter&logoColor=white" alt="Platform"/>
-  <img src="https://img.shields.io/badge/E2EE-Signal%20Protocol-red?style=for-the-badge&logo=signal&logoColor=white" alt="E2EE"/>
-</p>
 
 <h3 align="center">Zero Metadata · Zero Logs · True Peer-to-Peer Encryption</h3>
 
