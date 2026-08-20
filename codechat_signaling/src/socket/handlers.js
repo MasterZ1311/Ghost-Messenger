@@ -2,11 +2,12 @@
 
 const presence = require('../services/presence');
 const messageQueue = require('../services/messageQueue');
+const preKeyBundleStore = require('../services/preKeyBundleStore');
 const pushTokenStore = require('../services/pushTokenStore');
 const pushNotification = require('../services/pushNotification');
 const logger = require('../utils/logger');
 const SocketRateLimiter = require('../middleware/socketRateLimiter');
-const { validateUserCode, validateSignalEnvelope } = require('../utils/validation');
+const { validateUserCode, validateSignalEnvelope, validatePreKeyBundle } = require('../utils/validation');
 
 /**
  * Wires up all event handlers for a freshly connected socket.
@@ -146,6 +147,43 @@ function registerSocketHandlers(io, socket) {
     } else {
       socket.emit('presence_result', { userCode, online });
     }
+  });
+
+  // --- prekey bundle management ------------------------------------------
+  socket.on('publish_prekey', (payload, ack) => {
+    if (!limiter.allow()) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'Rate limit exceeded' });
+      return;
+    }
+    const { userCode, ...bundle } = payload || {};
+    if (!socket.data.userCode || socket.data.userCode !== (userCode && userCode.trim())) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'Unauthorized userCode for session' });
+      return;
+    }
+    const check = validatePreKeyBundle(bundle);
+    if (!check.ok) {
+      if (typeof ack === 'function') ack({ ok: false, error: check.reason });
+      return;
+    }
+    const result = preKeyBundleStore.put(userCode.trim(), bundle);
+    if (typeof ack === 'function') ack(result);
+  });
+
+  socket.on('get_prekey', (userCode, ack) => {
+    if (!limiter.allow()) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'Rate limit exceeded' });
+      return;
+    }
+    if (typeof userCode !== 'string') {
+      if (typeof ack === 'function') ack({ ok: false, error: 'Invalid userCode' });
+      return;
+    }
+    const bundle = preKeyBundleStore.get(userCode.trim());
+    if (!bundle) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'No PreKey bundle found' });
+      return;
+    }
+    if (typeof ack === 'function') ack({ ok: true, bundle });
   });
 
   // --- disconnect ---------------------------------------------------------

@@ -21,12 +21,32 @@ function createSocketServer(httpServer) {
       pingTimeout: 20000,
       pingInterval: 25000,
     });
-    // Redis adapter for horizontal scaling
-    const { createAdapter } = require('@socket.io/redis-adapter');
-    const Redis = require('ioredis');
-    const pubClient = new Redis({ host: process.env.REDIS_HOST || 'redis', port: process.env.REDIS_PORT || 6379 });
-    const subClient = pubClient.duplicate();
-    io.adapter(createAdapter(pubClient, subClient));
+    // Optional Redis adapter for horizontal scaling
+    if (config.redis && config.redis.enabled) {
+      try {
+        const { createAdapter } = require('@socket.io/redis-adapter');
+        const Redis = require('ioredis');
+        const pubClient = new Redis({
+          host: config.redis.host,
+          port: config.redis.port,
+          retryStrategy: (times) => Math.min(times * 100, 3000),
+          lazyConnect: true,
+        });
+        pubClient.on('error', (err) => {
+          logger.error({ err: err.message }, 'Redis pub client error');
+        });
+        const subClient = pubClient.duplicate();
+        subClient.on('error', (err) => {
+          logger.error({ err: err.message }, 'Redis sub client error');
+        });
+        pubClient.connect().catch((err) => logger.warn({ err: err.message }, 'Redis connect error'));
+        subClient.connect().catch((err) => logger.warn({ err: err.message }, 'Redis connect error'));
+        io.adapter(createAdapter(pubClient, subClient));
+        logger.info({ host: config.redis.host, port: config.redis.port }, 'Redis adapter enabled');
+      } catch (err) {
+        logger.warn({ err: err.message }, 'Failed to initialize Redis adapter, using in-memory');
+      }
+    }
 
   io.on('connection', (socket) => {
     registerSocketHandlers(io, socket);

@@ -110,7 +110,8 @@ const config = Object.freeze({
 
   // Redis configuration for adapter
   redis: {
-    host: process.env.REDIS_HOST || 'redis',
+    enabled: parseBool(process.env.REDIS_ENABLED, false),
+    host: process.env.REDIS_HOST || '127.0.0.1',
     port: parseInteger(process.env.REDIS_PORT, 6379),
   },
 });
