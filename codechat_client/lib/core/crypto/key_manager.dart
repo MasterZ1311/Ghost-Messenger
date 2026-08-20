@@ -16,6 +16,11 @@ class KeyManager {
     return bip39.generateMnemonic();
   }
 
+  /// Validates whether a mnemonic passphrase is a valid BIP39 mnemonic.
+  static bool validateMnemonic(String mnemonic) {
+    return bip39.validateMnemonic(mnemonic.trim().toLowerCase());
+  }
+
   /// Derives the 64-byte root seed from a BIP39 mnemonic.
   static Uint8List deriveSeed(String mnemonic) {
     return Uint8List.fromList(bip39.mnemonicToSeed(mnemonic));
@@ -84,21 +89,9 @@ class KeyManager {
   /// applying HKDF and constructing the Curve25519 key pair.
   static IdentityKeyPair _identityKeyPairFromSeedBytes(Uint8List seed) {
     final privBytes = _derivePrivateKeyBytes(seed);
-
-    // Apply the Curve25519 private key clamping as specified in RFC 7748 §5.
-    // libsignal_protocol_dart's DjbECPrivateKey accepts raw 32-byte scalars
-    // and performs clamping internally, but we do it explicitly to stay
-    // portable if the underlying library changes.
-    privBytes[0] &= 248;   // clear bits 0-2
-    privBytes[31] &= 127;  // clear bit 255
-    privBytes[31] |= 64;   // set bit 254
-
-    // Construct the private key and derive the matching public key.
-    final privateKey = Curve.decodePrivatePoint(privBytes);
-    final publicKey = Curve.generatePublicKey(privateKey);
-    final identityKey = IdentityKey(publicKey);
-
-    return IdentityKeyPair(identityKey, privateKey);
+    final ecKeyPair = Curve.generateKeyPairFromPrivate(privBytes);
+    final identityKey = IdentityKey(ecKeyPair.publicKey);
+    return IdentityKeyPair(identityKey, ecKeyPair.privateKey);
   }
 
   /// Generates a fresh random [IdentityKeyPair] (used when no mnemonic is

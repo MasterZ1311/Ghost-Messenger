@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io;
 
 /// Represents a push wakeup event received when device is backgrounded.
 class PushWakeupEvent {
@@ -44,7 +44,7 @@ class PushService {
   }
 
   /// Registers the push token with the active signaling Socket.IO connection.
-  void registerPushTokenWithSocket(IO.Socket socket) {
+  void registerPushTokenWithSocket(io.Socket socket) {
     if (_pushToken == null || _pushToken!.isEmpty) return;
     if (socket.connected) {
       socket.emit('register_push_token', {

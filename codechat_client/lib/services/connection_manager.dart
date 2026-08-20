@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import '../core/storage/database_helper.dart';
 import 'p2p_service.dart';
 import 'push_service.dart';
 import 'signal_service.dart';
@@ -14,16 +16,23 @@ class ConnectionManager {
   final String _localUserCode;
   final Map<String, String> _peerStatus = {};
   String? _lastServerUrl;
+  bool _isSignalingConnected = false;
 
   // External callbacks
   Function(String message, String fromCode)? onSecureMessageReceived;
   Function(String fromCode)? onIncomingConnection;
   Function(String peerCode, String status)? onPeerStatusChanged;
+  Function(bool isConnected)? onSignalingStatusChanged;
 
   ConnectionManager(this._signal, this._localUserCode, {PushService? pushService})
       : _pushService = pushService {
     _subscribeToPushWakeup();
   }
+
+  bool get isSignalingConnected => _isSignalingConnected;
+  String get localUserCode => _localUserCode;
+  SignalService get signalService => _signal;
+  P2PService get p2pService => _p2p;
 
   void _subscribeToPushWakeup() {
     _pushService?.onBackgroundWakeup.listen((event) {
@@ -46,16 +55,28 @@ class ConnectionManager {
 
     _socket.connect();
 
-    _socket.onConnect((_) {
+    _socket.onConnect((_) async {
       // ignore: avoid_print
       print('Connected to Signaling Server');
+      _isSignalingConnected = true;
+      onSignalingStatusChanged?.call(true);
       _socket.emit('join', _localUserCode);
       _pushService?.registerPushTokenWithSocket(_socket);
+
+      // Publish local PreKey bundle to signaling server
+      await publishPreKeyBundle();
     });
 
     _socket.onDisconnect((_) {
       // ignore: avoid_print
       print('Disconnected from Signaling Server');
+      _isSignalingConnected = false;
+      onSignalingStatusChanged?.call(false);
+    });
+
+    _socket.on('joined', (_) {
+      // ignore: avoid_print
+      print('Successfully registered on signaling network as $_localUserCode');
     });
 
     // Handle incoming signaling data from the relay
@@ -79,9 +100,55 @@ class ConnectionManager {
     });
   }
 
+  /// Uploads local PreKey bundle to signaling server for X3DH distribution.
+  Future<void> publishPreKeyBundle() async {
+    try {
+      final bundle = await _signal.exportPreKeyBundle(_localUserCode);
+      _socket.emitWithAck('publish_prekey', bundle, ack: (response) {
+        // ignore: avoid_print
+        print('PreKey bundle publication status: $response');
+      });
+    } catch (e) {
+      // ignore: avoid_print
+      print('Failed to export/publish PreKey bundle: $e');
+    }
+  }
+
+  /// Fetches a remote peer's PreKey bundle from the signaling server.
+  Future<bool> fetchAndProcessPreKeyBundle(String targetCode) async {
+    final completer = Completer<bool>();
+    _socket.emitWithAck('get_prekey', targetCode, ack: (response) async {
+      if (response != null && response['ok'] == true && response['bundle'] != null) {
+        try {
+          final bundleMap = Map<String, dynamic>.from(response['bundle'] as Map);
+          await _signal.processPreKeyBundleMap(targetCode, bundleMap);
+          completer.complete(true);
+        } catch (e) {
+          // ignore: avoid_print
+          print('Error processing remote prekey bundle: $e');
+          completer.complete(false);
+        }
+      } else {
+        completer.complete(false);
+      }
+    });
+
+    return completer.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
+  }
+
   /// Initiates a secure P2P connection to the target peer.
   Future<void> initiateSecureConnection(String targetCode) async {
     _setPeerStatus(targetCode, 'connecting');
+
+    // Ensure Signal session exists before connecting
+    final hasSession = await _signal.hasSession(targetCode);
+    if (!hasSession) {
+      await fetchAndProcessPreKeyBundle(targetCode);
+    }
+
     await _p2p.initializePeerConnection();
     _setupP2PCallbacks(targetCode);
 
@@ -184,6 +251,15 @@ class ConnectionManager {
           remoteCode,
           ciphertext.toList(),
         );
+
+        // Save incoming decrypted message to local SQLCipher database
+        await DatabaseHelper().saveMessage(
+          remoteCode: remoteCode,
+          content: plaintext,
+          isMe: false,
+          timestamp: DateTime.now(),
+        );
+
         onSecureMessageReceived?.call(plaintext, remoteCode);
       } catch (e) {
         // ignore: avoid_print
@@ -201,14 +277,44 @@ class ConnectionManager {
     return _peerStatus[peerCode] ?? 'offline';
   }
 
-  /// Sends a Signal-encrypted message over the P2P DataChannel.
+  /// Sends a Signal-encrypted message over the P2P DataChannel and persists to local DB.
   Future<void> sendSecureMessage(
     String targetCode,
     String plaintext,
   ) async {
+    // Ensure session exists
+    final hasSession = await _signal.hasSession(targetCode);
+    if (!hasSession) {
+      await fetchAndProcessPreKeyBundle(targetCode);
+    }
+
     final ciphertext = await _signal.encryptMessage(targetCode, plaintext);
     final payload = base64Encode(ciphertext);
     await _p2p.sendRawData(payload);
+
+    // Save sent message to local SQLCipher database
+    await DatabaseHelper().saveMessage(
+      remoteCode: targetCode,
+      content: plaintext,
+      isMe: true,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  /// Queries the signaling server if a user is currently online.
+  Future<bool> checkPeerPresence(String targetCode) async {
+    final completer = Completer<bool>();
+    _socket.emitWithAck('check_presence', targetCode, ack: (response) {
+      if (response != null && response['online'] != null) {
+        completer.complete(response['online'] == true);
+      } else {
+        completer.complete(false);
+      }
+    });
+    return completer.future.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => false,
+    );
   }
 
   /// Disconnects from the signaling server and releases P2P resources.
