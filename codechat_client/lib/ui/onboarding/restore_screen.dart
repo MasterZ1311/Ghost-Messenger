@@ -25,22 +25,19 @@ class _RestoreScreenState extends State<RestoreScreen> {
       setState(() => _errorMessage = 'Please enter your 12-word seed phrase');
       return;
     }
-
-    setState(() {
-      _isRestoring = true;
-      _errorMessage = null;
-    });
-
-    final success = await AppState.instance.restoreIdentityFromMnemonic(mnemonic);
-
-    if (!mounted) return;
-
-    setState(() => _isRestoring = false);
-
-    if (success) {
-      Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
-    } else {
-      setState(() => _errorMessage = 'Invalid 12-word mnemonic phrase. Please check and try again.');
+    setState(() { _isRestoring = true; _errorMessage = null; });
+    try {
+      final success = await AppState.instance.restoreIdentityFromMnemonic(mnemonic);
+      if (!mounted) return;
+      setState(() => _isRestoring = false);
+      if (success) {
+        Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+      } else {
+        setState(() => _errorMessage = 'Invalid 12-word mnemonic phrase. Please check and try again.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _isRestoring = false; _errorMessage = 'Restore failed: $e'; });
     }
   }
 

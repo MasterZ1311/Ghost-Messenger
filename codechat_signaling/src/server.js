@@ -2,6 +2,16 @@
 
 const http = require('http');
 
+// Prevent a single unhandled rejection from killing the server
+process.on('uncaughtException', (err) => {
+  // Use console.error here since logger may not be initialized yet
+  console.error({ err }, 'uncaughtException — process will continue');
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error({ reason }, 'unhandledRejection — process will continue');
+});
+
 const config = require('./config');
 const logger = require('./utils/logger');
 const { createApp } = require('./app');
@@ -81,6 +91,10 @@ function startServer() {
       'CodeChat signaling server listening'
     );
   });
+
+  // Graceful shutdown on container signals
+  process.on('SIGTERM', () => shutdown('SIGTERM').then(() => process.exit(0)).catch(() => process.exit(1)));
+  process.on('SIGINT',  () => shutdown('SIGINT').then(() => process.exit(0)).catch(() => process.exit(1)));
 
   let shuttingDown = false;
 

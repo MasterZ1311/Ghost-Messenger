@@ -9,8 +9,33 @@ const { validateUserCode, validatePreKeyBundle } = require('../utils/validation'
 const router = express.Router();
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  Internal-API authentication middleware
+//
+//  Checks the X-Signaling-Token header against the INTERNAL_API_TOKEN env var.
+//  - If INTERNAL_API_TOKEN is not configured, the endpoint is disabled (501).
+//  - If the header is missing or wrong, the request is rejected (403).
+//
+//  NOTE: The PRIMARY path for prekey upload is via the socket `publish_prekey`
+//  event, which is already authenticated via the joined socket session.
+//  These REST endpoints are intended for admin tooling / internal services only.
+// ─────────────────────────────────────────────────────────────────────────────
+function requireInternalToken(req, res, next) {
+  const secret = process.env.INTERNAL_API_TOKEN;
+  if (!secret) {
+    return res.status(501).json({ error: 'Endpoint disabled: INTERNAL_API_TOKEN not configured' });
+  }
+  const provided = req.headers['x-signaling-token'];
+  if (!provided || provided !== secret) {
+    logger.warn({ ip: req.ip, path: req.path }, 'internal API token check failed');
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  return next();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  PUT /api/prekey-bundle
 //  Upload (or refresh) the caller's own X3DH PreKey bundle.
+//  Requires X-Signaling-Token header (admin / internal tooling only).
 //
 //  Body: {
 //    userCode:       string,          // the uploader's own UserCode
@@ -27,7 +52,7 @@ const router = express.Router();
 //    },
 //  }
 // ─────────────────────────────────────────────────────────────────────────────
-router.put('/api/prekey-bundle', (req, res) => {
+router.put('/api/prekey-bundle', requireInternalToken, (req, res) => {
   // Enforce overall payload size (express.json() limit is set in app.js, but
   // we add an explicit field-level check here for belt-and-suspenders safety).
   let serializedSize;
@@ -60,18 +85,16 @@ router.put('/api/prekey-bundle', (req, res) => {
     return res.status(503).json({ error: result.reason });
   }
 
-  logger.info({ userCode }, 'prekey bundle uploaded');
+  logger.info({ userCode }, 'prekey bundle uploaded via REST');
   return res.status(200).json({ ok: true });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  DELETE /api/prekey-bundle/:userCode
 //  Remove a user's own bundle (logout / key rotation).
-//  In a production system this endpoint would be authenticated; for now it is
-//  open because the server has no auth surface — peers are identified only by
-//  their UserCode and possession of the corresponding private key.
+//  Requires X-Signaling-Token header (admin / internal tooling only).
 // ─────────────────────────────────────────────────────────────────────────────
-router.delete('/api/prekey-bundle/:userCode', (req, res) => {
+router.delete('/api/prekey-bundle/:userCode', requireInternalToken, (req, res) => {
   const { userCode } = req.params;
 
   const codeCheck = validateUserCode(userCode);
@@ -80,13 +103,14 @@ router.delete('/api/prekey-bundle/:userCode', (req, res) => {
   }
 
   preKeyBundleStore.delete(userCode.trim());
-  logger.info({ userCode }, 'prekey bundle deleted');
+  logger.info({ userCode }, 'prekey bundle deleted via REST');
   return res.status(200).json({ ok: true });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  GET /api/prekey-bundle/:userCode
 //  Fetch another peer's PreKey bundle to initiate an X3DH session.
+//  Public endpoint — clients need to retrieve peer bundles without auth.
 //  Returns 404 if the peer has not uploaded a bundle yet.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/api/prekey-bundle/:userCode', (req, res) => {

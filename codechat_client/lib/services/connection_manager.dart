@@ -18,6 +18,7 @@ class ConnectionManager {
   final Map<String, String> _peerStatus = {};
   String? _lastServerUrl;
   bool _isSignalingConnected = false;
+  StreamSubscription<PushWakeupEvent>? _pushWakeupSubscription;
 
   // External callbacks
   Function(String message, String fromCode)? onSecureMessageReceived;
@@ -36,7 +37,7 @@ class ConnectionManager {
   P2PService get p2pService => _p2p;
 
   void _subscribeToPushWakeup() {
-    _pushService?.onBackgroundWakeup.listen((event) {
+    _pushWakeupSubscription = _pushService?.onBackgroundWakeup.listen((event) {
       // ignore: avoid_print
       print('Background push wakeup received from ${event.fromCode}');
       if (_lastServerUrl != null) {
@@ -49,6 +50,7 @@ class ConnectionManager {
   /// Connects to the signaling server and registers the local user.
   void connect(String serverUrl) {
     _lastServerUrl = serverUrl;
+    _p2p.setSignalingUrl(serverUrl);
 
     // Cleanly tear down any existing socket before reconnecting.
     try {
@@ -140,25 +142,30 @@ class ConnectionManager {
     if (socket == null || !socket.connected) return false;
 
     final completer = Completer<bool>();
+    bool completed = false;
+
     socket.emitWithAck('get_prekey', targetCode, ack: (response) async {
+      if (completed) return; // guard against post-timeout calls
       if (response != null && response['ok'] == true && response['bundle'] != null) {
         try {
           final bundleMap = Map<String, dynamic>.from(response['bundle'] as Map);
           await _signal.processPreKeyBundleMap(targetCode, bundleMap);
-          completer.complete(true);
+          // Replenish pre-keys so the consumed one gets replaced
+          await _signal.replenishPreKeysIfNeeded();
+          if (!completed) { completed = true; completer.complete(true); }
         } catch (e) {
           // ignore: avoid_print
           print('Error processing remote prekey bundle: $e');
-          completer.complete(false);
+          if (!completed) { completed = true; completer.complete(false); }
         }
       } else {
-        completer.complete(false);
+        if (!completed) { completed = true; completer.complete(false); }
       }
     });
 
     return completer.future.timeout(
       const Duration(seconds: 5),
-      onTimeout: () => false,
+      onTimeout: () { completed = true; return false; },
     );
   }
 
@@ -340,21 +347,34 @@ class ConnectionManager {
     if (socket == null || !socket.connected) return false;
 
     final completer = Completer<bool>();
+    bool completed = false;
+
     socket.emitWithAck('check_presence', targetCode, ack: (response) {
+      if (completed) return; // guard against post-timeout calls
       if (response != null && response['online'] != null) {
-        completer.complete(response['online'] == true);
+        if (!completed) { completed = true; completer.complete(response['online'] == true); }
       } else {
-        completer.complete(false);
+        if (!completed) { completed = true; completer.complete(false); }
       }
     });
     return completer.future.timeout(
       const Duration(seconds: 3),
-      onTimeout: () => false,
+      onTimeout: () { completed = true; return false; },
     );
+  }
+
+  /// Re-registers the push token with the current socket connection.
+  void registerPushToken() {
+    final socket = _socket;
+    if (socket != null && socket.connected && _pushService != null) {
+      _pushService!.registerPushTokenWithSocket(socket);
+    }
   }
 
   /// Disconnects from the signaling server and releases P2P resources.
   Future<void> disconnect() async {
+    _pushWakeupSubscription?.cancel();
+    _pushWakeupSubscription = null;
     try {
       _socket?.disconnect();
       _socket?.dispose();

@@ -14,10 +14,15 @@ dependencies:
   # Transport & P2P
   flutter_webrtc: ^1.6.0
   socket_io_client: ^2.0.3
+  http: ^1.2.0
   
   # Signal Protocol (Pure Dart — auditable E2EE)
   libsignal_protocol_dart: ^0.7.1
   
+  # Firebase / Push Notifications
+  firebase_core: ^3.0.0
+  firebase_messaging: ^15.0.0
+
   # Storage & Crypto
   flutter_secure_storage: ^9.0.0
   sqflite_sqlcipher: ^3.0.0+2

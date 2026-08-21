@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../core/storage/database_helper.dart';
 import '../core/signal/sqlite_signal_store.dart';
 import '../core/crypto/key_manager.dart';
 import '../core/crypto/user_code_utils.dart';
 import 'signal_service.dart';
 import 'connection_manager.dart';
+import 'push_service.dart';
 
 /// Default signaling server URL.
 /// Override with a real server address for production deployments.
@@ -22,11 +25,15 @@ class AppState extends ChangeNotifier {
   SQLiteSignalStore? _store;
   SignalService? _signalService;
   ConnectionManager? _connectionManager;
+  final PushService _pushService = PushService();
+
+  StreamSubscription<String>? _fcmTokenRefreshSubscription;
 
   String? _localUserCode;
   String? _mnemonic;
   bool _isInitialized = false;
-  bool _isLoading = true;
+  bool _isLoading = false; // false until initialize() is first called
+  bool _isInitializing = false; // re-entrant guard
   String? _initError;
 
   /// Configurable signaling server URL. Change before calling initialize().
@@ -45,9 +52,12 @@ class AppState extends ChangeNotifier {
 
   List<Map<String, dynamic>> get recentChats => _recentChats;
   ConnectionManager? get connectionManager => _connectionManager;
+  PushService get pushService => _pushService;
 
   /// Check for existing identity in database and setup services.
   Future<void> initialize() async {
+    if (_isInitializing) return; // prevent concurrent re-entrant calls
+    _isInitializing = true;
     _isLoading = true;
     _initError = null;
     notifyListeners();
@@ -64,6 +74,13 @@ class AppState extends ChangeNotifier {
         _localUserCode = UserCodeUtils.generateUserCode(publicKeyBytes);
 
         await _setupConnectionManager();
+
+        try {
+          final fcmToken = await FirebaseMessaging.instance.getToken();
+          if (fcmToken != null) _pushService.setPushToken(fcmToken);
+        } catch (_) {}
+        _setupFcmTokenListener();
+
         await loadRecentChats();
         _isInitialized = true;
       }
@@ -74,6 +91,7 @@ class AppState extends ChangeNotifier {
       _isInitialized = false;
     } finally {
       _isLoading = false;
+      _isInitializing = false;
       notifyListeners();
     }
   }
@@ -98,6 +116,13 @@ class AppState extends ChangeNotifier {
 
     _signalService = SignalService(_store!);
     await _setupConnectionManager();
+
+    try {
+      final fcmToken = await FirebaseMessaging.instance.getToken();
+      if (fcmToken != null) _pushService.setPushToken(fcmToken);
+    } catch (_) {}
+    _setupFcmTokenListener();
+
     await loadRecentChats();
 
     _isInitialized = true;
@@ -126,6 +151,13 @@ class AppState extends ChangeNotifier {
 
     _signalService = SignalService(_store!);
     await _setupConnectionManager();
+
+    try {
+      final fcmToken = await FirebaseMessaging.instance.getToken();
+      if (fcmToken != null) _pushService.setPushToken(fcmToken);
+    } catch (_) {}
+    _setupFcmTokenListener();
+
     await loadRecentChats();
 
     _isInitialized = true;
@@ -139,17 +171,10 @@ class AppState extends ChangeNotifier {
 
     // Safely disconnect the previous manager before replacing it.
     await _connectionManager?.disconnect();
-    _connectionManager = ConnectionManager(_signalService!, _localUserCode!);
+    _connectionManager = ConnectionManager(_signalService!, _localUserCode!, pushService: _pushService);
 
-    // Handle incoming messages — save to DB first, then notify.
+    // Handle incoming messages — ConnectionManager already saves to DB; only refresh UI here.
     _connectionManager!.onSecureMessageReceived = (message, fromCode) async {
-      final timestamp = DateTime.now();
-      await _dbHelper.saveMessage(
-        remoteCode: fromCode,
-        content: message,
-        isMe: false,
-        timestamp: timestamp,
-      );
       await loadRecentChats();
       notifyListeners();
     };
@@ -162,6 +187,17 @@ class AppState extends ChangeNotifier {
 
     // Connect to the configured signaling server.
     _connectionManager!.connect(signalingServerUrl);
+    // Register push token if already available
+    _connectionManager!.registerPushToken();
+  }
+
+  /// Cancels any existing FCM token refresh subscription and sets up a fresh one.
+  void _setupFcmTokenListener() {
+    _fcmTokenRefreshSubscription?.cancel();
+    _fcmTokenRefreshSubscription = FirebaseMessaging.instance.onTokenRefresh.listen((token) {
+      _pushService.setPushToken(token);
+      _connectionManager?.registerPushToken();
+    });
   }
 
   /// Connect to peer P2P session.
@@ -182,24 +218,18 @@ class AppState extends ChangeNotifier {
 
   /// Send an encrypted message and save to local database.
   Future<void> sendMessage(String targetCode, String content) async {
-    final timestamp = DateTime.now();
-
-    // Try sending over live P2P channel if connected
     try {
       await _connectionManager?.sendSecureMessage(targetCode, content);
     } catch (e) {
-      // ignore: avoid_print
-      print('Send over P2P failed (saving locally): $e');
+      // If P2P send fails, save locally so message is not lost
+      print('Send failed, saving locally: $e');
+      await _dbHelper.saveMessage(
+        remoteCode: targetCode,
+        content: content,
+        isMe: true,
+        timestamp: DateTime.now(),
+      );
     }
-
-    // Always persist outgoing message in local SQLCipher DB
-    await _dbHelper.saveMessage(
-      remoteCode: targetCode,
-      content: content,
-      isMe: true,
-      timestamp: timestamp,
-    );
-
     await loadRecentChats();
     notifyListeners();
   }

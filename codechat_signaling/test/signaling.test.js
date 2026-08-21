@@ -1,5 +1,8 @@
 'use strict';
 
+process.env.REDIS_ENABLED = 'false';
+process.env.NODE_ENV = 'test';
+
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
 const http = require('http');

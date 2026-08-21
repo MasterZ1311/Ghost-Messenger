@@ -138,8 +138,17 @@ function registerSocketHandlers(io, socket) {
     }
   });
 
-  // --- presence query -----------------------------------------------------
+  // --- presence query — requires join, rate-limited ----------------------
   socket.on('check_presence', (userCode, ack) => {
+    if (!socket.data.userCode) {
+      if (typeof ack === 'function') ack({ online: false });
+      else socket.emit('error_message', { code: 401, message: 'Join before querying presence' });
+      return;
+    }
+    if (!limiter.allow()) {
+      if (typeof ack === 'function') ack({ online: false });
+      return;
+    }
     const check = validateUserCode(userCode);
     const online = check.ok ? presence.isOnline(userCode.trim()) : false;
     if (typeof ack === 'function') {
@@ -170,6 +179,10 @@ function registerSocketHandlers(io, socket) {
   });
 
   socket.on('get_prekey', (userCode, ack) => {
+    if (!socket.data.userCode) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'Join before fetching prekey bundles' });
+      return;
+    }
     if (!limiter.allow()) {
       if (typeof ack === 'function') ack({ ok: false, error: 'Rate limit exceeded' });
       return;

@@ -34,12 +34,22 @@ class SignalService {
       await _store.storeSignedPreKey(signedPreKey.id, signedPreKey);
     }
 
-    // Ensure at least one pre-key exists
+    // Ensure at least one pre-key exists — use incrementing IDs to avoid reuse
     PreKeyRecord? preKey;
-    try {
-      preKey = await _store.loadPreKey(1);
-    } catch (_) {
-      final preKeys = KeyManager.generatePreKeys(1, 10);
+    // Scan legacy range (1-200) and new high range (10001+) for an existing key
+    outer:
+    for (final rangeStart in [1, 10001, 20001, 30001]) {
+      for (int id = rangeStart; id < rangeStart + 200; id++) {
+        try {
+          preKey = await _store.loadPreKey(id);
+          break outer;
+        } catch (_) {}
+      }
+    }
+    if (preKey == null) {
+      // Generate a fresh batch of pre-keys in the high-range to avoid ID collisions
+      final startId = (DateTime.now().millisecondsSinceEpoch % 90000) + 10001;
+      final preKeys = KeyManager.generatePreKeys(startId, 20);
       for (final pk in preKeys) {
         await _store.storePreKey(pk.id, pk);
       }
@@ -152,6 +162,27 @@ class SignalService {
     }
 
     return utf8.decode(decryptedBytes);
+  }
+
+  /// Replenishes pre-keys if supply is low. Call after establishing a new session.
+  Future<void> replenishPreKeysIfNeeded() async {
+    int availableCount = 0;
+    // Scan legacy range (1-200) and new high range (10001+) for available keys
+    for (final rangeStart in [1, 10001, 20001, 30001]) {
+      for (int id = rangeStart; id < rangeStart + 200; id++) {
+        try {
+          await _store.loadPreKey(id);
+          availableCount++;
+        } catch (_) {}
+      }
+    }
+    if (availableCount < 5) {
+      final startId = (DateTime.now().millisecondsSinceEpoch % 90000) + 10001;
+      final newKeys = KeyManager.generatePreKeys(startId, 20);
+      for (final pk in newKeys) {
+        await _store.storePreKey(pk.id, pk);
+      }
+    }
   }
 
   /// Computes a formatted Safety Number (numeric fingerprint) between local user and remote peer.

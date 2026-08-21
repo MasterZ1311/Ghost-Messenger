@@ -18,12 +18,9 @@ class SocketRateLimiter {
    */
   allow() {
     const now = Date.now();
-    const windowStart = now - config.rateLimit.windowMs;
 
-    // Drop timestamps outside the current window.
-    while (this._timestamps.length && this._timestamps[0] < windowStart) {
-      this._timestamps.shift();
-    }
+    // Remove expired entries. _max is small (default 30) so this is O(1) in practice.
+    this._timestamps = this._timestamps.filter(t => now - t < config.rateLimit.windowMs);
 
     if (this._timestamps.length >= config.rateLimit.maxEvents) {
       return false;

@@ -21,6 +21,14 @@ router.get('/ready', (req, res) => {
 
 /** Operational metrics (no PII; counts only). */
 router.get('/metrics', (req, res) => {
+  const token = process.env.METRICS_TOKEN;
+  if (token) {
+    const authHeader = req.headers['authorization'] || '';
+    const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (provided !== token) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+  }
   res.json({
     uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
     presence: presence.stats(),

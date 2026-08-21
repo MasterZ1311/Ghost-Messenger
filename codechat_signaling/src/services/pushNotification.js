@@ -34,13 +34,15 @@ class PushNotificationService {
       contentAvailable: true,
       data: {
         type: 'connection_request',
-        fromCode: fromCode,
+        fromCode: fromCode,           // kept in data payload for app routing
         signalType: signalData.type || 'offer',
         timestamp: Date.now().toString(),
       },
       notification: {
         title: 'Incoming Encrypted Connection',
-        body: `${fromCode} is attempting to establish a P2P session`,
+        // Do NOT include fromCode in the notification body — it would leak
+        // sender metadata to the lock screen and notification tray.
+        body: 'You have an incoming encrypted connection request',
       },
     };
   }
@@ -80,7 +82,12 @@ class PushNotificationService {
     }
 
     if (sent) {
+      // Cap dispatch history to avoid unbounded memory growth in long-running servers.
+      const MAX_DISPATCH_HISTORY = 500;
       this.sentDispatches.push(dispatch);
+      if (this.sentDispatches.length > MAX_DISPATCH_HISTORY) {
+        this.sentDispatches.shift();
+      }
       logger.info({ toCode, fromCode, platform: record.platform }, 'push wakeup notification dispatched');
     }
 

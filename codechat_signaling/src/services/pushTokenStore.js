@@ -18,6 +18,15 @@ class PushTokenStore {
   registerToken(userCode, token, platform = 'android') {
     if (!userCode || !token) return false;
     const code = userCode.trim();
+
+    // Cap the token store to prevent memory exhaustion via unauthenticated registrations.
+    const MAX_TOKENS = 50000;
+    if (!this.tokens.has(code) && this.tokens.size >= MAX_TOKENS) {
+      // Evict the oldest entry (Map preserves insertion order).
+      const oldest = this.tokens.keys().next().value;
+      this.tokens.delete(oldest);
+    }
+
     this.tokens.set(code, {
       token: token.trim(),
       platform: (platform || 'android').toLowerCase(),

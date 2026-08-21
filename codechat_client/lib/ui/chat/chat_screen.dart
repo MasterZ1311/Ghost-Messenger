@@ -38,19 +38,14 @@ class _ChatScreenState extends State<ChatScreen> {
     final rows = await DatabaseHelper().getMessagesForPeer(widget.remoteCode);
     if (mounted) {
       setState(() {
-        _messages.clear();
-        // rows are oldest-first from DB; insert each at index 0 so the list
-        // ends up newest-first, which matches the reversed ListView.
-        for (final row in rows) {
-          _messages.insert(
-            0,
-            Message(
-              text: row['content'] as String,
-              isMe: (row['is_me'] as int) == 1,
-              timestamp: DateTime.parse(row['timestamp'] as String),
-            ),
-          );
-        }
+        final loaded = rows.map((row) => Message(
+          text: row['content'] as String,
+          isMe: (row['is_me'] as int) == 1,
+          timestamp: DateTime.parse(row['timestamp'] as String),
+        )).toList();
+        _messages
+          ..clear()
+          ..addAll(loaded.reversed);
         _isLoading = false;
       });
     }
@@ -76,6 +71,10 @@ class _ChatScreenState extends State<ChatScreen> {
       if (peerCode == widget.remoteCode && mounted) {
         setState(() {});
       }
+    };
+
+    widget.connectionManager.onSignalingStatusChanged = (connected) {
+      if (mounted) setState(() {});
     };
 
     // Only initiate a new WebRTC connection when not already connected/connecting.
@@ -234,28 +233,40 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
-
     _messageController.clear();
-    setState(() {
-      _messages.insert(
-        0,
-        Message(
-          text: text,
-          isMe: true,
-          timestamp: DateTime.now(),
-        ),
-      );
-    });
+
+    final msg = Message(text: text, isMe: true, timestamp: DateTime.now());
+    setState(() => _messages.insert(0, msg));
 
     try {
       await widget.connectionManager.sendSecureMessage(widget.remoteCode, text);
     } catch (e) {
       if (mounted) {
+        // Mark message as failed in the UI
+        final idx = _messages.indexOf(msg);
+        if (idx != -1) {
+          setState(() {
+            _messages[idx] = Message(text: text, isMe: true, timestamp: msg.timestamp, failed: true);
+          });
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Send error: $e')),
+          SnackBar(
+            content: const Text('Message not delivered — peer may be offline'),
+            action: SnackBarAction(label: 'Retry', onPressed: () => _retrySend(text)),
+          ),
         );
       }
     }
+  }
+
+  Future<void> _retrySend(String text) async {
+    try {
+      await widget.connectionManager.sendSecureMessage(widget.remoteCode, text);
+      // Remove the failed message marker now that it delivered
+      if (mounted) {
+        setState(() => _messages.removeWhere((m) => m.text == text && m.failed));
+      }
+    } catch (_) {}
   }
 
   Future<void> _showSafetyNumbers() async {
@@ -328,8 +339,9 @@ class Message {
   final String text;
   final bool isMe;
   final DateTime timestamp;
+  final bool failed;
 
-  Message({required this.text, required this.isMe, required this.timestamp});
+  Message({required this.text, required this.isMe, required this.timestamp, this.failed = false});
 }
 
 class _ChatBubble extends StatelessWidget {
@@ -365,6 +377,18 @@ class _ChatBubble extends StatelessWidget {
               '${msg.timestamp.hour.toString().padLeft(2, '0')}:${msg.timestamp.minute.toString().padLeft(2, '0')}',
               style: const TextStyle(fontSize: 10, color: Colors.white30),
             ),
+            if (msg.failed)
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.error_outline, size: 12, color: Colors.redAccent),
+                    SizedBox(width: 4),
+                    Text('Not delivered', style: TextStyle(fontSize: 10, color: Colors.redAccent)),
+                  ],
+                ),
+              ),
           ],
         ),
       ),

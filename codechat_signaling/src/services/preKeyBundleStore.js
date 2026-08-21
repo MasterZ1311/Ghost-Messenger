@@ -3,6 +3,9 @@
 const config = require('../config');
 const logger = require('../utils/logger');
 
+/** Maximum age for a stored bundle before it is considered stale (7 days). */
+const MAX_BUNDLE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /**
  * Transient in-memory store for X3DH PreKey bundles.
  *
@@ -18,6 +21,8 @@ class PreKeyBundleStore {
   constructor() {
     /** @type {Map<string, object>} */
     this._bundles = new Map();
+    /** @type {ReturnType<typeof setInterval> | null} */
+    this._sweepInterval = null;
   }
 
   /**
@@ -44,11 +49,34 @@ class PreKeyBundleStore {
 
   /**
    * Retrieves the PreKey bundle for a UserCode.
+   *
+   * - If the bundle is older than MAX_BUNDLE_AGE_MS it is deleted and null is returned.
+   * - The one-time preKey is consumed (nulled out) after it is served so that each
+   *   one-time pre-key is used only once. The rest of the bundle
+   *   (identityKey, signedPreKey, registrationId) remains available.
+   *
    * @param {string} userCode
    * @returns {object | null}
    */
   get(userCode) {
-    return this._bundles.get(userCode) ?? null;
+    const bundle = this._bundles.get(userCode);
+    if (!bundle) return null;
+
+    // Evict stale bundle.
+    if (Date.now() - bundle.storedAt > MAX_BUNDLE_AGE_MS) {
+      this._bundles.delete(userCode);
+      logger.debug({ userCode }, 'prekey bundle evicted (stale)');
+      return null;
+    }
+
+    // Consume the one-time preKey so it cannot be reused.
+    const result = { ...bundle };
+    if (bundle.preKey) {
+      bundle.preKey = null;
+      logger.debug({ userCode }, 'one-time preKey consumed');
+    }
+
+    return result;
   }
 
   /**
@@ -60,10 +88,55 @@ class PreKeyBundleStore {
     if (existed) logger.debug({ userCode }, 'prekey bundle deleted');
   }
 
+  /**
+   * Evicts all bundles older than MAX_BUNDLE_AGE_MS.
+   */
+  evictStale() {
+    const now = Date.now();
+    let evicted = 0;
+    for (const [userCode, bundle] of this._bundles) {
+      if (now - bundle.storedAt > MAX_BUNDLE_AGE_MS) {
+        this._bundles.delete(userCode);
+        evicted++;
+      }
+    }
+    if (evicted > 0) {
+      logger.info({ evicted }, 'prekey bundle sweep: evicted stale bundles');
+    }
+  }
+
+  /**
+   * Starts the hourly background sweep that removes stale bundles.
+   * Safe to call multiple times — only one interval will run at a time.
+   */
+  startSweeper() {
+    if (this._sweepInterval) return;
+    this._sweepInterval = setInterval(() => this.evictStale(), 60 * 60 * 1000);
+    // Allow the Node.js process to exit even if the interval is still running.
+    if (this._sweepInterval.unref) this._sweepInterval.unref();
+    logger.debug('prekey bundle sweeper started (interval: 1 h)');
+  }
+
+  /**
+   * Stops the background sweep interval.
+   */
+  stopSweeper() {
+    if (this._sweepInterval) {
+      clearInterval(this._sweepInterval);
+      this._sweepInterval = null;
+      logger.debug('prekey bundle sweeper stopped');
+    }
+  }
+
   /** Returns aggregate metrics. */
   stats() {
     return { storedBundles: this._bundles.size };
   }
 }
 
-module.exports = new PreKeyBundleStore();
+const store = new PreKeyBundleStore();
+
+// Start the hourly eviction sweep automatically when the module is loaded.
+store.startSweeper();
+
+module.exports = store;

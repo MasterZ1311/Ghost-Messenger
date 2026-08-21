@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:http/http.dart' as http;
 
 /// Callback types for P2P events
 typedef OnIceCandidateCallback = void Function(RTCIceCandidate candidate);
@@ -17,26 +19,63 @@ class P2PService {
   OnConnectionStateCallback? onConnectionStateChange;
   OnDataChannelStateCallback? onDataChannelStateChange;
 
-  // ICE configuration
-  final Map<String, dynamic> _iceConfig = {
+  /// Base URL of the signaling server (http/https), set via [setSignalingUrl].
+  String? _signalingBaseUrl;
+
+  /// Fallback ICE config used when the server endpoint is unreachable.
+  static const Map<String, dynamic> _fallbackIceConfig = {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
-      // Add your self-hosted TURN server:
-      // {
-      //   'urls': 'turn:your-turn-server.com:3478',
-      //   'username': 'codechat',
-      //   'credential': 'your-password'
-      // },
     ]
   };
+
+  /// Stores the signaling server base URL for ICE config fetching.
+  /// Accepts ws:// or wss:// URLs and converts them to http:// / https://.
+  void setSignalingUrl(String url) {
+    var base = url.trimRight();
+    if (base.endsWith('/')) base = base.substring(0, base.length - 1);
+    base = base.replaceFirst(RegExp(r'^wss://'), 'https://');
+    base = base.replaceFirst(RegExp(r'^ws://'), 'http://');
+    _signalingBaseUrl = base;
+  }
+
+  /// Fetches the ICE server configuration from the signaling server.
+  /// Falls back to Google STUN servers on any failure.
+  Future<Map<String, dynamic>> _fetchIceConfig() async {
+    final baseUrl = _signalingBaseUrl;
+    if (baseUrl == null) return _fallbackIceConfig;
+
+    try {
+      final response = await http
+          .get(Uri.parse('$baseUrl/api/ice-servers'))
+          .timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic> && decoded.containsKey('iceServers')) {
+          return {'iceServers': decoded['iceServers']};
+        }
+        // Some servers return a bare list
+        if (decoded is List) {
+          return {'iceServers': decoded};
+        }
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('Failed to fetch ICE config from server, using fallback: $e');
+    }
+
+    return _fallbackIceConfig;
+  }
 
   /// Initializes a new PeerConnection.
   Future<void> initializePeerConnection() async {
     // Dispose previous connection if any
     await dispose();
 
-    _peerConnection = await createPeerConnection(_iceConfig);
+    final config = await _fetchIceConfig();
+    _peerConnection = await createPeerConnection(config);
 
     // Relay ICE candidates to signaling server
     _peerConnection!.onIceCandidate = (candidate) {

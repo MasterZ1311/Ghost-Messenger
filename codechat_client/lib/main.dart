@@ -1,3 +1,5 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/onboarding/onboarding_screen.dart';
@@ -5,8 +7,32 @@ import 'ui/onboarding/restore_screen.dart';
 import 'ui/home/home_screen.dart';
 import 'services/app_state.dart';
 
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  // Background wakeup received — the app will reconnect to signaling on next foreground
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  // Route FCM foreground data payloads to PushService for reconnection logic.
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    if (message.data.isNotEmpty) {
+      AppState.instance.pushService.handleIncomingPushPayload(
+        Map<String, dynamic>.from(message.data),
+      );
+    }
+  });
+
+  // Request notification permission
+  await FirebaseMessaging.instance.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
 
   // Catch Flutter framework errors (e.g. widget build failures) and show
   // a safe fallback instead of crashing the app.

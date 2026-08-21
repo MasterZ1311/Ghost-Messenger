@@ -18,17 +18,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _generateIdentity() async {
     setState(() => _isGenerating = true);
-    final mnemonic = await AppState.instance.createNewIdentity();
-    final userCode = AppState.instance.localUserCode;
-
-    if (!mounted) return;
-
-    setState(() {
-      _mnemonic = mnemonic;
-      _userCode = userCode;
-      _showMnemonic = true;
-      _isGenerating = false;
-    });
+    try {
+      final mnemonic = await AppState.instance.createNewIdentity();
+      final userCode = AppState.instance.localUserCode;
+      if (!mounted) return;
+      setState(() {
+        _mnemonic = mnemonic;
+        _userCode = userCode;
+        _showMnemonic = true;
+        _isGenerating = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isGenerating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create identity: $e')),
+      );
+    }
   }
 
   @override

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -10,6 +11,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   static Database? _database;
+  Completer<Database>? _initCompleter;
 
   static const String _encryptionKeyStorageKey = 'master_encryption_key';
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
@@ -19,8 +21,17 @@ class DatabaseHelper {
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDatabase();
-    return _database!;
+    if (_initCompleter != null) return _initCompleter!.future;
+    _initCompleter = Completer<Database>();
+    try {
+      final db = await _initDatabase();
+      _database = db;
+      _initCompleter!.complete(db);
+      return db;
+    } catch (e) {
+      _initCompleter = null; // allow retry on failure
+      rethrow;
+    }
   }
 
   Future<Database> _initDatabase() async {

@@ -3,6 +3,8 @@
 const config = require('../config');
 const logger = require('../utils/logger');
 
+const MAX_TOTAL_QUEUED = 10000;
+
 /**
  * Transient handshake queue.
  *
@@ -19,6 +21,7 @@ class HandshakeQueue {
     /** @type {Map<string, Array<{ payload: object, expiresAt: number }>>} */
     this._queues = new Map();
     this._sweepTimer = null;
+    this._totalQueued = 0;
   }
 
   start() {
@@ -38,6 +41,7 @@ class HandshakeQueue {
       this._sweepTimer = null;
     }
     this._queues.clear();
+    this._totalQueued = 0;
   }
 
   /**
@@ -47,6 +51,10 @@ class HandshakeQueue {
   enqueue(toCode, payload) {
     if (!config.queue.enabled) {
       return { ok: false, reason: 'queue disabled' };
+    }
+
+    if (this._totalQueued >= MAX_TOTAL_QUEUED) {
+      return { ok: false, reason: 'server_queue_full' };
     }
 
     let queue = this._queues.get(toCode);
@@ -63,6 +71,7 @@ class HandshakeQueue {
       payload,
       expiresAt: Date.now() + config.queue.ttlMs,
     });
+    this._totalQueued++;
     logger.debug({ toCode, depth: queue.length }, 'handshake queued');
     return { ok: true };
   }
@@ -77,9 +86,9 @@ class HandshakeQueue {
 
     this._queues.delete(toCode);
     const now = Date.now();
-    return queue
-      .filter((entry) => entry.expiresAt > now)
-      .map((entry) => entry.payload);
+    const valid = queue.filter((entry) => entry.expiresAt > now);
+    this._totalQueued -= queue.length;
+    return valid.map((entry) => entry.payload);
   }
 
   _sweep() {
@@ -95,6 +104,7 @@ class HandshakeQueue {
       }
     }
     if (removed > 0) {
+      this._totalQueued -= removed;
       logger.debug({ removed }, 'handshake queue swept expired entries');
     }
   }
