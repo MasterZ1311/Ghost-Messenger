@@ -9,7 +9,8 @@ import 'signal_service.dart';
 
 /// Orchestrates Signaling, WebRTC, and Signal Protocol encryption flows.
 class ConnectionManager {
-  late io.Socket _socket;
+  // Socket is nullable — only non-null after connect() is called.
+  io.Socket? _socket;
   final P2PService _p2p = P2PService();
   final SignalService _signal;
   final PushService? _pushService;
@@ -48,53 +49,70 @@ class ConnectionManager {
   /// Connects to the signaling server and registers the local user.
   void connect(String serverUrl) {
     _lastServerUrl = serverUrl;
-    _socket = io.io(serverUrl, <String, dynamic>{
+
+    // Cleanly tear down any existing socket before reconnecting.
+    try {
+      _socket?.disconnect();
+      _socket?.dispose();
+    } catch (_) {}
+    _socket = null;
+    _isSignalingConnected = false;
+
+    final socket = io.io(serverUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': false,
     });
+    _socket = socket;
 
-    _socket.connect();
+    socket.connect();
 
-    _socket.onConnect((_) async {
+    socket.onConnect((_) async {
       // ignore: avoid_print
       print('Connected to Signaling Server');
       _isSignalingConnected = true;
       onSignalingStatusChanged?.call(true);
-      _socket.emit('join', _localUserCode);
-      _pushService?.registerPushTokenWithSocket(_socket);
+      socket.emit('join', _localUserCode);
+      if (_pushService != null) {
+        _pushService!.registerPushTokenWithSocket(socket);
+      }
 
       // Publish local PreKey bundle to signaling server
       await publishPreKeyBundle();
     });
 
-    _socket.onDisconnect((_) {
+    socket.onDisconnect((_) {
       // ignore: avoid_print
       print('Disconnected from Signaling Server');
       _isSignalingConnected = false;
       onSignalingStatusChanged?.call(false);
     });
 
-    _socket.on('joined', (_) {
+    socket.on('joined', (_) {
       // ignore: avoid_print
       print('Successfully registered on signaling network as $_localUserCode');
     });
 
     // Handle incoming signaling data from the relay
-    _socket.on('signal', (data) async {
-      final fromCode = data['fromCode'] as String;
-      final signal = data['signalData'] as Map<String, dynamic>;
-      final type = signal['type'] as String;
+    socket.on('signal', (data) async {
+      try {
+        final fromCode = data['fromCode'] as String;
+        final signalData = data['signalData'] as Map<String, dynamic>;
+        final type = signalData['type'] as String;
 
-      if (type == 'offer') {
-        await _handleOffer(fromCode, signal);
-      } else if (type == 'answer') {
-        await _handleAnswer(signal);
-      } else if (type == 'candidate') {
-        await _handleCandidate(signal);
+        if (type == 'offer') {
+          await _handleOffer(fromCode, signalData);
+        } else if (type == 'answer') {
+          await _handleAnswer(signalData);
+        } else if (type == 'candidate') {
+          await _handleCandidate(signalData);
+        }
+      } catch (e) {
+        // ignore: avoid_print
+        print('Signal handler error: $e');
       }
     });
 
-    _socket.on('error_message', (data) {
+    socket.on('error_message', (data) {
       // ignore: avoid_print
       print('Signaling error: $data');
     });
@@ -102,9 +120,11 @@ class ConnectionManager {
 
   /// Uploads local PreKey bundle to signaling server for X3DH distribution.
   Future<void> publishPreKeyBundle() async {
+    final socket = _socket;
+    if (socket == null || !socket.connected) return;
     try {
       final bundle = await _signal.exportPreKeyBundle(_localUserCode);
-      _socket.emitWithAck('publish_prekey', bundle, ack: (response) {
+      socket.emitWithAck('publish_prekey', bundle, ack: (response) {
         // ignore: avoid_print
         print('PreKey bundle publication status: $response');
       });
@@ -116,8 +136,11 @@ class ConnectionManager {
 
   /// Fetches a remote peer's PreKey bundle from the signaling server.
   Future<bool> fetchAndProcessPreKeyBundle(String targetCode) async {
+    final socket = _socket;
+    if (socket == null || !socket.connected) return false;
+
     final completer = Completer<bool>();
-    _socket.emitWithAck('get_prekey', targetCode, ack: (response) async {
+    socket.emitWithAck('get_prekey', targetCode, ack: (response) async {
       if (response != null && response['ok'] == true && response['bundle'] != null) {
         try {
           final bundleMap = Map<String, dynamic>.from(response['bundle'] as Map);
@@ -141,6 +164,13 @@ class ConnectionManager {
 
   /// Initiates a secure P2P connection to the target peer.
   Future<void> initiateSecureConnection(String targetCode) async {
+    final socket = _socket;
+    if (socket == null || !socket.connected) {
+      // ignore: avoid_print
+      print('Cannot initiate P2P: signaling socket not connected');
+      return;
+    }
+
     _setPeerStatus(targetCode, 'connecting');
 
     // Ensure Signal session exists before connecting
@@ -153,9 +183,9 @@ class ConnectionManager {
     _setupP2PCallbacks(targetCode);
 
     // Create WebRTC Offer
-    RTCSessionDescription offer = await _p2p.createOffer();
+    final RTCSessionDescription offer = await _p2p.createOffer();
 
-    _socket.emit('signal', {
+    socket.emit('signal', {
       'toCode': targetCode,
       'fromCode': _localUserCode,
       'signalData': {
@@ -169,18 +199,21 @@ class ConnectionManager {
     String fromCode,
     Map<String, dynamic> signal,
   ) async {
+    final socket = _socket;
+    if (socket == null) return;
+
     _setPeerStatus(fromCode, 'connecting');
     onIncomingConnection?.call(fromCode);
     await _p2p.initializePeerConnection();
     _setupP2PCallbacks(fromCode);
 
-    RTCSessionDescription offer = RTCSessionDescription(
+    final RTCSessionDescription offer = RTCSessionDescription(
       signal['sdp'] as String?,
       'offer',
     );
-    RTCSessionDescription answer = await _p2p.createAnswer(offer);
+    final RTCSessionDescription answer = await _p2p.createAnswer(offer);
 
-    _socket.emit('signal', {
+    socket.emit('signal', {
       'toCode': fromCode,
       'fromCode': _localUserCode,
       'signalData': {
@@ -210,7 +243,7 @@ class ConnectionManager {
   void _setupP2PCallbacks(String remoteCode) {
     // Relay ICE candidates through signaling
     _p2p.onIceCandidate = (candidate) {
-      _socket.emit('signal', {
+      _socket?.emit('signal', {
         'toCode': remoteCode,
         'fromCode': _localUserCode,
         'signalData': {
@@ -303,8 +336,11 @@ class ConnectionManager {
 
   /// Queries the signaling server if a user is currently online.
   Future<bool> checkPeerPresence(String targetCode) async {
+    final socket = _socket;
+    if (socket == null || !socket.connected) return false;
+
     final completer = Completer<bool>();
-    _socket.emitWithAck('check_presence', targetCode, ack: (response) {
+    socket.emitWithAck('check_presence', targetCode, ack: (response) {
       if (response != null && response['online'] != null) {
         completer.complete(response['online'] == true);
       } else {
@@ -319,7 +355,12 @@ class ConnectionManager {
 
   /// Disconnects from the signaling server and releases P2P resources.
   Future<void> disconnect() async {
-    _socket.disconnect();
+    try {
+      _socket?.disconnect();
+      _socket?.dispose();
+    } catch (_) {}
+    _socket = null;
+    _isSignalingConnected = false;
     await _p2p.dispose();
   }
 }

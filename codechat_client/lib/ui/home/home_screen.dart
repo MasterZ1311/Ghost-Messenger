@@ -50,8 +50,13 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) setState(() {});
     };
 
+    // Restore the DB-saving callback that AppState normally owns.
+    // ChatScreen overwrites this while open; we reclaim it on return.
     cm.onSecureMessageReceived = (msg, fromCode) {
-      _loadRecentChats();
+      // Persist to DB via AppState, then refresh the list.
+      AppState.instance.loadRecentChats().then((_) {
+        if (mounted) setState(() => _recentChats = AppState.instance.recentChats);
+      });
     };
 
     cm.onIncomingConnection = (fromCode) {
@@ -70,6 +75,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+    // ChatScreen overwrites connection callbacks while open.
+    // Reclaim them and refresh the chat list now that we're back.
+    _setupConnectionListeners();
     _loadRecentChats();
   }
 

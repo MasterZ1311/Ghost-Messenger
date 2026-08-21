@@ -6,6 +6,13 @@ import '../core/crypto/user_code_utils.dart';
 import 'signal_service.dart';
 import 'connection_manager.dart';
 
+/// Default signaling server URL.
+/// Override with a real server address for production deployments.
+/// The value can be changed at runtime via [AppState.signalingServerUrl].
+const String _kDefaultSignalingUrl = 'https://ghostmessenger.duckdns.org';
+// For physical devices, change to your actual server URL, e.g.:
+// const String _kDefaultSignalingUrl = 'https://signal.yourdomain.com';
+
 class AppState extends ChangeNotifier {
   static final AppState instance = AppState._internal();
   factory AppState() => instance;
@@ -20,6 +27,10 @@ class AppState extends ChangeNotifier {
   String? _mnemonic;
   bool _isInitialized = false;
   bool _isLoading = true;
+  String? _initError;
+
+  /// Configurable signaling server URL. Change before calling initialize().
+  String signalingServerUrl = _kDefaultSignalingUrl;
 
   List<Map<String, dynamic>> _recentChats = [];
   final Map<String, String> _peerStatusMap = {};
@@ -28,12 +39,17 @@ class AppState extends ChangeNotifier {
   String? get mnemonic => _mnemonic;
   bool get isInitialized => _isInitialized;
   bool get isLoading => _isLoading;
+
+  /// Non-null when initialization failed — surface this in the UI.
+  String? get initError => _initError;
+
   List<Map<String, dynamic>> get recentChats => _recentChats;
   ConnectionManager? get connectionManager => _connectionManager;
 
   /// Check for existing identity in database and setup services.
   Future<void> initialize() async {
     _isLoading = true;
+    _initError = null;
     notifyListeners();
 
     try {
@@ -46,25 +62,32 @@ class AppState extends ChangeNotifier {
         final identityKeyPair = await _store!.getIdentityKeyPair();
         final publicKeyBytes = identityKeyPair.getPublicKey().serialize();
         _localUserCode = UserCodeUtils.generateUserCode(publicKeyBytes);
-        
+
         await _setupConnectionManager();
         await loadRecentChats();
         _isInitialized = true;
       }
-    } catch (e) {
+    } catch (e, stack) {
       // ignore: avoid_print
-      print('AppState init error: $e');
+      print('AppState init error: $e\n$stack');
+      _initError = 'Failed to initialize app: ${e.toString()}';
+      _isInitialized = false;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  /// Generates fresh identity & saves to SQLCipher.
+  /// Generates a fresh identity.
+  ///
+  /// The generated mnemonic is the canonical backup phrase. The identity key
+  /// is derived deterministically from that mnemonic via HKDF, so the mnemonic
+  /// will correctly restore the same identity.
   Future<String> createNewIdentity() async {
     _mnemonic = KeyManager.generateMnemonic();
-    final keyPair = KeyManager.generateRegistrationKeyPair();
-    final regId = KeyManager.generateRegistrationId();
+    // Derive the keypair from the mnemonic so restore works correctly.
+    final keyPair = KeyManager.generateIdentityFromMnemonic(_mnemonic!);
+    final regId = KeyManager.deriveRegistrationIdFromMnemonic(_mnemonic!);
 
     final db = await _dbHelper.database;
     _store ??= SQLiteSignalStore(db);
@@ -78,6 +101,7 @@ class AppState extends ChangeNotifier {
     await loadRecentChats();
 
     _isInitialized = true;
+    _initError = null;
     notifyListeners();
     return _mnemonic!;
   }
@@ -91,7 +115,7 @@ class AppState extends ChangeNotifier {
 
     _mnemonic = cleanMnemonic;
     final keyPair = KeyManager.generateIdentityFromMnemonic(cleanMnemonic);
-    final regId = KeyManager.generateRegistrationId();
+    final regId = KeyManager.deriveRegistrationIdFromMnemonic(cleanMnemonic);
 
     final db = await _dbHelper.database;
     _store ??= SQLiteSignalStore(db);
@@ -105,6 +129,7 @@ class AppState extends ChangeNotifier {
     await loadRecentChats();
 
     _isInitialized = true;
+    _initError = null;
     notifyListeners();
     return true;
   }
@@ -112,10 +137,11 @@ class AppState extends ChangeNotifier {
   Future<void> _setupConnectionManager() async {
     if (_localUserCode == null || _signalService == null) return;
 
-    _connectionManager?.disconnect();
+    // Safely disconnect the previous manager before replacing it.
+    await _connectionManager?.disconnect();
     _connectionManager = ConnectionManager(_signalService!, _localUserCode!);
 
-    // Handle incoming messages
+    // Handle incoming messages — save to DB first, then notify.
     _connectionManager!.onSecureMessageReceived = (message, fromCode) async {
       final timestamp = DateTime.now();
       await _dbHelper.saveMessage(
@@ -134,8 +160,8 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     };
 
-    // Connect to signaling server (default localhost:3000)
-    _connectionManager!.connect('http://localhost:3000');
+    // Connect to the configured signaling server.
+    _connectionManager!.connect(signalingServerUrl);
   }
 
   /// Connect to peer P2P session.

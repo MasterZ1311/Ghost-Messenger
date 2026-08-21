@@ -39,8 +39,11 @@ class _ChatScreenState extends State<ChatScreen> {
     if (mounted) {
       setState(() {
         _messages.clear();
-        for (final row in rows.reversed) {
-          _messages.add(
+        // rows are oldest-first from DB; insert each at index 0 so the list
+        // ends up newest-first, which matches the reversed ListView.
+        for (final row in rows) {
+          _messages.insert(
+            0,
             Message(
               text: row['content'] as String,
               isMe: (row['is_me'] as int) == 1,
@@ -75,8 +78,12 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     };
 
-    // Auto-initiate WebRTC P2P connection to peer
-    widget.connectionManager.initiateSecureConnection(widget.remoteCode);
+    // Only initiate a new WebRTC connection when not already connected/connecting.
+    final currentStatus =
+        widget.connectionManager.getPeerStatus(widget.remoteCode);
+    if (currentStatus != 'online' && currentStatus != 'connecting') {
+      widget.connectionManager.initiateSecureConnection(widget.remoteCode);
+    }
   }
 
   @override

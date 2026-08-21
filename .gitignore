@@ -20,6 +20,12 @@ android/key.properties
 .idea/
 .vscode/
 
+# Firebase — never commit these
+google-services.json
+*-firebase-adminsdk-*.json
+firebase-service-account.json
+codechat_signaling/secrets/
+
 # Node.js
 node_modules/
 npm-debug.log*

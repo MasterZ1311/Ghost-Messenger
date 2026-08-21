@@ -9,9 +9,12 @@ services:
       NODE_ENV: production
       PORT: 3000
       LOG_PRETTY: "false"
-      # CORS_ORIGINS: https://app.ghostmessenger.io
-      # TURN_URLS: turn:turn:3478
-      # TURN_SECRET: ${TURN_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      TURN_URLS: ${TURN_URLS}          # e.g. turn:yourdomain.com:3478
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_REALM: ${TURN_REALM}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s

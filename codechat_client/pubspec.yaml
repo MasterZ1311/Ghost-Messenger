@@ -1,6 +1,6 @@
 name: codechat_client
 description: "A P2P End-to-End Encrypted Texting App"
-version: 1.0.0+1
+version: 1.0.0+2
 publish_to: 'none'
 
 environment:
@@ -12,7 +12,7 @@ dependencies:
   cupertino_icons: ^1.0.6
   
   # Transport & P2P
-  flutter_webrtc: ^0.10.0
+  flutter_webrtc: ^1.6.0
   socket_io_client: ^2.0.3
   
   # Signal Protocol (Pure Dart — auditable E2EE)
