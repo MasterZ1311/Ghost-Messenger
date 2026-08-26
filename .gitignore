@@ -1,32 +1,34 @@
-# Flutter/Dart
-.dart_tool/
-.packages
-.pub-cache/
-.pub/
-build/
-ios/.generated/
-ios/Flutter/Generated.xcconfig
-ios/Flutter/flutter_export_environment.sh
-ios/Flutter/App.framework
-ios/Flutter/App.podspec
-ios/Flutter/App.zip
-ios/Flutter/Generated.xcconfig
-ios/Flutter/flutter_export_environment.sh
-android/app/src/main/res/values/strings.xml
+# Android
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures
+.externalNativeBuild/
+.cxx/
+android/app/build/
+android/build/
+android/.gradle/
+android/.kotlin/
 android/local.properties
-android/key.properties
+android/app/release/
+*.apk
+*.aab
+
+# Keystore files
 *.keystore
 *.jks
-.idea/
-.vscode/
+android/key.properties
 
 # Firebase — never commit these
 google-services.json
 *-firebase-adminsdk-*.json
 firebase-service-account.json
-codechat_signaling/secrets/
 
-# Node.js
+# Node.js (signaling server)
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -40,3 +42,10 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

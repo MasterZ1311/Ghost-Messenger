@@ -1,9 +1,0 @@
-# Example release keystore properties configuration
-# Copy this file to "key.properties" in the same directory (codechat_client/android/)
-# Replace the values below with the credentials created during keystore generation.
-# IMPORTANT: Never commit key.properties to public git repositories.
-
-storePassword=YourKeystorePasswordHere
-keyPassword=YourKeyPasswordHere
-keyAlias=upload
-storeFile=../upload-keystore.jks
