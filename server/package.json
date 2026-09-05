@@ -6,7 +6,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test test/**/*.test.js"
+    "test": "node --test test/**/*.test.js",
+    "verify": "node scripts/verify-deployment.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

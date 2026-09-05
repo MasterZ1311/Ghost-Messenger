@@ -1,0 +1,13 @@
+# ============================================================
+# Ghost Messenger — Android Release Keystore Configuration
+# ============================================================
+# Copy this file to `android/key.properties` and replace the values
+# with your actual keystore credentials.
+#
+# DO NOT COMMIT `key.properties` OR `upload-keystore.jks` TO GIT!
+# ============================================================
+
+storePassword=YOUR_KEYSTORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=ghost_upload
+storeFile=upload-keystore.jks

@@ -129,6 +129,6 @@ class SecurePreferences @Inject constructor(
         private const val KEY_REGISTRATION_ID = "registration_id"
         private const val KEY_SIGNALING_URL = "signaling_url"
 
-        const val DEFAULT_SIGNALING_URL = "http://10.0.2.2:3000"
+        const val DEFAULT_SIGNALING_URL = "https://ghost-messenger-fp8w.onrender.com"
     }
 }

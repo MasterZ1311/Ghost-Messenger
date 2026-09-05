@@ -46,8 +46,33 @@ class WebRtcManager @Inject constructor(
     }
 
     private val iceServers = listOf(
+        // Google Public STUN
         PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-        PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
+        PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+
+        // Metered Public STUN
+        PeerConnection.IceServer.builder("stun:stun.relay.metered.ca:80").createIceServer(),
+
+        // Metered TURN Relays (UDP & TCP Fallbacks)
+        PeerConnection.IceServer.builder("turn:global.relay.metered.ca:80")
+            .setUsername("d8b6c3ca05209ab02a917f8b")
+            .setPassword("1zz/bX4u3W5ILOXV")
+            .createIceServer(),
+
+        PeerConnection.IceServer.builder("turn:global.relay.metered.ca:80?transport=tcp")
+            .setUsername("d8b6c3ca05209ab02a917f8b")
+            .setPassword("1zz/bX4u3W5ILOXV")
+            .createIceServer(),
+
+        PeerConnection.IceServer.builder("turn:global.relay.metered.ca:443")
+            .setUsername("d8b6c3ca05209ab02a917f8b")
+            .setPassword("1zz/bX4u3W5ILOXV")
+            .createIceServer(),
+
+        PeerConnection.IceServer.builder("turns:global.relay.metered.ca:443?transport=tcp")
+            .setUsername("d8b6c3ca05209ab02a917f8b")
+            .setPassword("1zz/bX4u3W5ILOXV")
+            .createIceServer()
     )
 
     private val peerConnections = ConcurrentHashMap<String, PeerConnection>()

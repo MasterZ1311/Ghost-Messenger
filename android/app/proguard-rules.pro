@@ -65,6 +65,10 @@
 -keep class dagger.hilt.** { *; }
 -keep class * extends dagger.hilt.android.internal.managers.ViewComponentManager$FragmentContextWrapper { *; }
 
+# --- Tink / Security Crypto ---
+-dontwarn com.google.crypto.tink.**
+-dontwarn com.google.errorprone.annotations.**
+
 # --- General ---
 -keepattributes Signature
 -keepattributes Exceptions
