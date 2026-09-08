@@ -1,7 +1,7 @@
 {
-  "name": "ghost-messenger-signaling",
+  "name": "calypso-signaling",
   "version": "1.0.0",
-  "description": "Zero-knowledge ephemeral signaling and prekey broker for Ghost Messenger",
+  "description": "Zero-knowledge ephemeral signaling and prekey broker for Calypso",
   "type": "module",
   "main": "src/server.js",
   "scripts": {

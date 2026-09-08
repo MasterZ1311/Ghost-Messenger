@@ -1,19 +1,19 @@
-# Privacy Policy for Ghost Messenger
+# Privacy Policy for Calypso
 
 **Effective Date**: August 20, 2026  
-**Last Updated**: August 20, 2026
+**Last Updated**: September 7, 2026
 
 ## 1. Introduction
 
-Ghost Messenger ("we," "our," or "us") is dedicated to protecting user privacy through cryptographic design. Ghost Messenger is engineered as a zero-knowledge, peer-to-peer (P2P) messaging application. This Privacy Policy details our technical architecture, data handling practices, and our commitment to ensuring that user communication remains private and confidential.
+Calypso ("we," "our," or "us") is dedicated to protecting user privacy through cryptographic design. Calypso is engineered as a zero-knowledge, peer-to-peer (P2P) messaging application. This Privacy Policy details our technical architecture, data handling practices, and our commitment to ensuring that user communication remains private and confidential.
 
-By downloading, installing, or utilizing Ghost Messenger, you acknowledge the terms outlined in this Privacy Policy.
+By downloading, installing, or utilizing Calypso, you acknowledge the terms outlined in this Privacy Policy.
 
 ---
 
 ## 2. Fundamental Architectural Principles
 
-Ghost Messenger operates on three foundational privacy tenets:
+Calypso operates on three foundational privacy tenets:
 
 1. **Zero Personally Identifiable Information (PII)**: We do not require, collect, or store phone numbers, email addresses, usernames, device contacts, or government-issued identifiers.
 2. **End-to-End Encryption (E2EE)**: All communications are encrypted end-to-end using the Signal Protocol. We do not possess cryptographic decryption keys and cannot access message contents under any circumstance.
@@ -63,7 +63,7 @@ To broker connections between devices, the following technical data is processed
 ## 6. Third-Party Services and Infrastructure
 
 - **STUN/TURN Infrastructure**: Standard STUN servers (e.g., Google STUN) and self-hosted TURN relays are utilized solely for NAT traversal and packet routing when direct peer-to-peer connection is obstructed by network firewalls. Relays process encrypted packets and cannot inspect the payload.
-- **Third-Party Analytics**: Ghost Messenger incorporates zero commercial advertising networks, third-party analytics SDKs, or behavioral trackers.
+- **Third-Party Analytics**: Calypso incorporates zero commercial advertising networks, third-party analytics SDKs, or behavioral trackers.
 
 ---
 
@@ -76,7 +76,7 @@ Under the GDPR, we process minimal technical connection data under the legal bas
 We do not sell, share, or monetize personal information as defined under the CCPA/CPRA.
 
 ### C. Children's Online Privacy Protection Act (COPPA)
-Ghost Messenger does not knowingly collect or solicit personal information from children under the age of 13.
+Calypso does not knowingly collect or solicit personal information from children under the age of 13.
 
 ---
 
@@ -90,6 +90,6 @@ We reserve the right to revise this Privacy Policy to reflect changes in legal r
 
 For technical inquiries or questions regarding our cryptographic implementation and privacy practices, please contact:
 
-- **Entity**: Ghost Messenger Project
-- **Email**: privacy@ghostmessenger.org
+- **Entity**: Calypso Project
+- **Email**: privacy@calypso.chat
 - **Repository**: https://github.com/MasterZ1311/Ghost-Messenger

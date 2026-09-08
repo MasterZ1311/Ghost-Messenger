@@ -8,7 +8,7 @@ import { setupSignalingHandlers } from '../src/sockets/signalingHandler.js';
 import { InMemoryPreKeyStore } from '../src/store/InMemoryPreKeyStore.js';
 import { PresenceManager } from '../src/store/PresenceManager.js';
 
-describe('Ghost Messenger Ephemeral Signaling Server Test Suite', () => {
+describe('Calypso Ephemeral Signaling Server Test Suite', () => {
 
   describe('InMemoryPreKeyStore Unit Tests', () => {
     let store;

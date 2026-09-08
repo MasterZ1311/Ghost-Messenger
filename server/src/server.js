@@ -22,9 +22,9 @@ const io = new Server(server, {
 setupSignalingHandlers(io, presenceManager);
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Ghost Signaling] Ephemeral Signaling Server active on port ${PORT}`);
-  console.log(`[Ghost Signaling] Local: http://localhost:${PORT}`);
-  console.log(`[Ghost Signaling] Android Emulator: http://10.0.2.2:${PORT}`);
+  console.log(`[Calypso Signaling] Ephemeral Signaling Server active on port ${PORT}`);
+  console.log(`[Calypso Signaling] Local: http://localhost:${PORT}`);
+  console.log(`[Calypso Signaling] Android Emulator: http://10.0.2.2:${PORT}`);
 });
 
 export { server, io };

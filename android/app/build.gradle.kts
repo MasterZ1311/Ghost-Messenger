@@ -21,11 +21,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "org.ghostmessenger"
+        applicationId = "org.calypso.messenger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -77,6 +77,10 @@ android {
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/**/*.dll"
+            excludes += "/**/*.dylib"
+            excludes += "*.dll"
+            excludes += "*.dylib"
         }
     }
 }

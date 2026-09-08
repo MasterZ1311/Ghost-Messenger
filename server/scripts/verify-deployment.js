@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Ghost Messenger — Automated Deployment Verification Script
+ * Calypso — Automated Deployment Verification Script
  *
  * Runs all 4 production deployment tests against a live server endpoint:
  * 1. HTTPS / Root JSON greeting
@@ -30,14 +30,14 @@ const colors = {
 if (cleanUrl.includes('your-domain.com') || cleanUrl.includes('yourdomain.com') || cleanUrl.includes('example.com')) {
   console.log(`\n${colors.yellow}${colors.bold}⚠️  NOTE: "${cleanUrl}" is a placeholder URL from the guide!${colors.reset}`);
   console.log(`${colors.yellow}Please replace it with your actual deployed URL:${colors.reset}`);
-  console.log(`  • Railway: ${colors.cyan}node scripts/verify-deployment.js https://ghost-messenger-production-xxxx.up.railway.app${colors.reset}`);
-  console.log(`  • Render:  ${colors.cyan}node scripts/verify-deployment.js https://ghost-messenger.onrender.com${colors.reset}`);
+  console.log(`  • Railway: ${colors.cyan}node scripts/verify-deployment.js https://calypso-production-xxxx.up.railway.app${colors.reset}`);
+  console.log(`  • Render:  ${colors.cyan}node scripts/verify-deployment.js https://calypso-messenger.onrender.com${colors.reset}`);
   console.log(`  • Local:   ${colors.cyan}node scripts/verify-deployment.js http://localhost:3000${colors.reset}\n`);
   process.exit(1);
 }
 
 console.log(`\n${colors.bold}${colors.cyan}═════════════════════════════════════════════════════════════════${colors.reset}`);
-console.log(`${colors.bold} 👻 GHOST MESSENGER — PRODUCTION DEPLOYMENT VERIFICATION${colors.reset}`);
+console.log(`${colors.bold} 🛡️ CALYPSO — PRODUCTION DEPLOYMENT VERIFICATION${colors.reset}`);
 console.log(`${colors.cyan} Target Endpoint: ${colors.bold}${cleanUrl}${colors.reset}`);
 console.log(`${colors.bold}${colors.cyan}═════════════════════════════════════════════════════════════════${colors.reset}\n`);
 

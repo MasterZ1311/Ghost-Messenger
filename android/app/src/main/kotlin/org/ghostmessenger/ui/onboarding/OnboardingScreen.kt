@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -96,18 +98,36 @@ private fun LandingStep(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        Box(
+            modifier = Modifier
+                .size(88.dp)
+                .background(
+                    color = GhostColors.SurfaceDark,
+                    shape = CircleShape
+                )
+                .border(
+                    width = 2.dp,
+                    color = GhostColors.GhostGreen,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "C",
+                color = GhostColors.GhostGreen,
+                fontSize = 48.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Spacer(modifier = Modifier.height(20.dp))
         Text(
-            text = "👻",
-            fontSize = 72.sp
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "GHOST MESSENGER",
+            text = "CALYPSO",
             color = GhostColors.GhostGreen,
-            fontSize = 24.sp,
+            fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace,
-            letterSpacing = 4.sp
+            letterSpacing = 6.sp
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(

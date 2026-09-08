@@ -34,7 +34,7 @@ export function createApp() {
   // Health check root
   app.get('/', (req, res) => {
     res.json({
-      name: 'Ghost Messenger Ephemeral Signaling Service',
+      name: 'Calypso Ephemeral Signaling Service',
       version: '1.0.0',
       status: 'active'
     });

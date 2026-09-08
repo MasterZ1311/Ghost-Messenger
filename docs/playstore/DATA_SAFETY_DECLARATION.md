@@ -1,6 +1,6 @@
 # Google Play Console — Data Safety Declaration Guide
 
-This document provides exact responses for completing the mandatory **Data Safety** questionnaire in the Google Play Console for **Ghost Messenger**.
+This document provides exact responses for completing the mandatory **Data Safety** questionnaire in the Google Play Console for **Calypso**.
 
 ---
 
@@ -8,7 +8,7 @@ This document provides exact responses for completing the mandatory **Data Safet
 
 ### Question: Does your app collect or share any of the required user data types?
 - **Response**: **No**  
-*(Ghost Messenger does not collect or share personal user data with servers or third parties. All message payloads are encrypted end-to-end and routed directly between devices via peer-to-peer WebRTC DataChannels).*
+*(Calypso does not collect or share personal user data with servers or third parties. All message payloads are encrypted end-to-end and routed directly between devices via peer-to-peer WebRTC DataChannels).*
 
 ### Question: Is all of the user data collected by your app encrypted in transit?
 - **Response**: **Yes**  
@@ -33,7 +33,7 @@ This document provides exact responses for completing the mandatory **Data Safet
 | **Audio Files** | Voice or sound recordings | **No** | **No** | Not collected. |
 | **Files & Docs** | Files or documents | **No** | **No** | Not collected. |
 | **Calendar** | Calendar events | **No** | **No** | Not collected. |
-| **Contacts** | Contact lists / address book | **No** | **No** | Ghost Messenger does not access or upload device contacts. |
+| **Contacts** | Contact lists / address book | **No** | **No** | Calypso does not access or upload device contacts. |
 | **App Activity** | App interactions, in-app search, installed apps | **No** | **No** | Zero telemetry or behavioral tracking. |
 | **Web Browsing** | Web browsing history | **No** | **No** | Not collected. |
 | **App Info & Performance** | Crash logs, diagnostics, performance metrics | **No** | **No** | No third-party crash reporting or analytics SDKs. |
@@ -48,7 +48,7 @@ This document provides exact responses for completing the mandatory **Data Safet
 - **At-Rest Encryption**: All locally persisted state (database entries, pre-keys, session records) is secured using SQLCipher (256-bit AES encryption) with keys stored in the Android Keystore (`flutter_secure_storage`).
 
 ### Account Deletion Mechanism
-- Because Ghost Messenger does not maintain user accounts or cloud storage, selecting the in-app reset option immediately destroys the local cryptographic identity and all encrypted message tables, leaving zero residual data.
+- Because Calypso does not maintain user accounts or cloud storage, selecting the in-app reset option immediately destroys the local cryptographic identity and all encrypted message tables, leaving zero residual data.
 
 ---
 
@@ -68,4 +68,4 @@ This document provides exact responses for completing the mandatory **Data Safet
 
 ### Advertising ID Declaration
 - **Does your app use Advertising ID?**: **No**  
-*(Ghost Messenger contains no advertising libraries or Google Mobile Ads SDKs).*
+*(Calypso contains no advertising libraries or Google Mobile Ads SDKs).*

@@ -1,5 +1,5 @@
 /**
- * In-Memory PreKey Bundle Store for Ghost Messenger.
+ * In-Memory PreKey Bundle Store for Calypso.
  *
  * Guarantees:
  * - Zero persistence to disk / database.

@@ -1,17 +1,18 @@
 
 
 <p align="center">
-  <img src="GM_logo-removebg-preview.png" alt="Ghost Messenger Logo" width="120"/>
+  <img src="calypso_logo.png" alt="Calypso Logo" width="140"/>
 </p>
 
 
+<h1 align="center">Calypso</h1>
 <h3 align="center">Zero Metadata · Zero Logs · True Peer-to-Peer Encryption</h3>
 
 ---
 
 ## Overview
 
-Ghost Messenger is a privacy-first, peer-to-peer encrypted messaging application. Messages are transmitted directly between peers over an end-to-end encrypted WebRTC DataChannel. The application uses the Signal Protocol for message-level encryption; the signaling server only brokers the WebRTC handshake (SDP offer/answer and ICE candidates) and does not access message content.
+**Calypso** (derived from the Greek *kalyptō* [καλύπτω] — *"to conceal"*, *"to veil"*) is a privacy-first, peer-to-peer encrypted messaging application. Messages are transmitted directly between peers over an end-to-end encrypted WebRTC DataChannel. The application uses the Signal Protocol for message-level encryption; the signaling server only brokers the WebRTC handshake (SDP offer/answer and ICE candidates) and does not access message content.
 
 The signaling server is intentionally designed to be metadata-minimal: it brokers connections and manages presence but does not persist or inspect message payloads.
 
@@ -29,31 +30,39 @@ The signaling server is intentionally designed to be metadata-minimal: it broker
 ## Architecture
 
 ```
-Ghost Messenger
-├── codechat_client/          # Flutter (Web) application
-│   └── lib/
+Calypso
+├── android/                  # Native Android client (Kotlin + Jetpack Compose)
+│   └── app/src/main/kotlin/org/ghostmessenger/
 │       ├── core/
-│       │   ├── crypto/       # BIP39 key management, Curve25519 identity
-│       │   ├── signal/       # Signal Protocol session store (SQLite-backed)
-│       │   └── storage/      # SQLCipher database helper
-│       ├── services/
-│       │   ├── app_state.dart        # Global app state + lifecycle
-│       │   ├── connection_manager.dart # P2P orchestration
-│       │   ├── p2p_service.dart       # WebRTC DataChannel management
-│       │   └── signal_service.dart    # Signal Protocol encrypt/decrypt
+│       │   ├── crypto/       # BIP39 mnemonic derivation, KeyManager, SignalCryptoManager
+│       │   └── model/        # Identity, EncryptedEnvelope models
+│       ├── data/
+│       │   ├── crypto/       # SqliteSignalProtocolStore (Room-backed)
+│       │   ├── local/        # Room database, Encrypted SQLCipher, EncryptedSharedPreferences
+│       │   ├── network/      # PreKey REST client, Socket.IO SignalingClient
+│       │   ├── repository/   # MessageRepository, reactive message streams
+│       │   └── webrtc/       # WebRtcManager (P2P DataChannel & ICE handling)
 │       └── ui/
-│           ├── onboarding/   # Identity creation + mnemonic restore
-│           ├── home/         # Chat list (recent conversations)
-│           ├── chat/         # Real-time chat screen
-│           └── theme/        # Dark theme & design system
+│           ├── onboarding/   # BIP39 seed generation & wallet recovery
+│           ├── home/         # Active peer list, QR codes, presence indicators
+│           ├── chat/         # End-to-end encrypted messaging view
+│           ├── settings/     # Key backup, cryptographic vault purge
+│           └── theme/        # Obsidian dark theme & design tokens
 │
-└── codechat_signaling/       # Node.js signaling server
-    └── src/
-        ├── socket/           # Socket.IO event handlers
-        ├── services/         # Presence registry, offline queue, ICE
-        ├── routes/           # Health, readiness, metrics, ICE endpoints
-        ├── middleware/        # Socket rate limiting
-        └── utils/            # Logging, validation
+├── server/                   # Ephemeral Node.js signaling & prekey broker
+│   ├── src/
+│   │   ├── routes/           # PreKey bundle upload/fetch REST API
+│   │   ├── sockets/          # Socket.IO WebRTC signaling relay (SDP/ICE)
+│   │   └── store/            # Ephemeral In-Memory PreKey store & PresenceManager
+│   ├── scripts/              # Automated deployment verification
+│   └── test/                 # Server REST & Socket.IO test suite
+│
+├── docs/                     # Release runbooks, Google Play compliance & legal policies
+│   ├── PLAY_STORE_RELEASE_V1.0.2_GUIDE.md
+│   └── playstore/            # Privacy Policy, Terms, Data Safety, Store Listing & Assets
+│
+├── Dockerfile                # Root Dockerfile for cloud deployment (Railway/Render)
+└── railway.json              # Railway deployment manifest
 ```
 
 ### Connection Flow
@@ -81,11 +90,11 @@ Ghost Messenger
 | Message Encryption | Signal Protocol (Double Ratchet) | Forward secrecy and post-compromise recovery per-message |
 | Key Agreement | Curve25519 (X3DH) | Asynchronous handshake for establishing shared secrets |
 | Transport | WebRTC DataChannel + DTLS | Encrypted peer-to-peer data transport |
-| Identity Keys | libsignal_protocol_dart | Curve25519 keypairs |
+| Identity Keys | libsignal-android | Curve25519 keypairs |
 | Identity Backup | BIP39 Mnemonic (12 words) | Offline recovery of identity |
-| Local Storage | SQLCipher (sqflite_sqlcipher) | AES-256 encrypted message database |
-| Key Storage | flutter_secure_storage | OS-level secure key storage (keychain / secure enclave) |
-| Server Side | Minimal knowledge | Server relays SDP/ICE only; it does not access message content |
+| Local Storage | SQLCipher (net.zetetic:sqlcipher-android) | AES-256 encrypted Room database |
+| Key Storage | EncryptedSharedPreferences | OS-level Android Keystore secure storage |
+| Server Side | Minimal knowledge | Server relays SDP/ICE and prekey bundles only; never touches plaintext |
 | Anti-Spoofing | fromCode validation | Sockets may only emit as their joined userCode |
 
 ---
@@ -94,9 +103,10 @@ Ghost Messenger
 
 ### Prerequisites
 
-- Flutter >= 3.0.0 with web support enabled
+- Android Studio (Ladybug / Meerkat or newer) with Android SDK 26–36
+- JDK 17
 - Node.js >= 18.0.0
-- Docker (optional, for production deployment)
+- Docker (optional, for server container deployment)
 
 ### 1. Clone the repository
 
@@ -108,22 +118,19 @@ cd Ghost-Messenger
 ### 2. Start the signaling server
 
 ```bash
-cd codechat_signaling
-
-# Copy and configure environment variables
-cp .env.example .env
+cd server
 
 # Install dependencies
 npm install
 
-# Run in development mode (auto-reload)
-npm run dev
-
-# Or run in production mode
+# Run in development mode
 npm start
+
+# Run test suite
+npm test
 ```
 
-By default the server starts on http://localhost:3000.
+By default the server starts on `http://localhost:3000`.
 
 Verify the server is running:
 
@@ -132,27 +139,27 @@ curl http://localhost:3000/health
 # → {"status":"ok", ...}
 ```
 
-### 3. Run the Flutter client
+### 3. Run the Android client
+
+Open the `android/` directory in **Android Studio**, or build from the command line:
 
 ```bash
-cd codechat_client
+cd android
 
-# Get dependencies
-flutter pub get
+# Build debug APK
+./gradlew assembleDebug
 
-# Run on web (Chrome)
-flutter run -d chrome
+# Build release bundle (AAB) for Google Play
+./gradlew :app:bundleRelease
 ```
-
-On first launch the application prompts to create a new identity or restore from a mnemonic.
 
 ---
 
 ## Configuration
 
-Signaling Server (.env)
+### Signaling Server
 
-Key environment variables — see codechat_signaling/.env.example for details:
+Key environment variables:
 
 | Variable | Default | Description |
 |---|---:|---|
@@ -161,47 +168,29 @@ Key environment variables — see codechat_signaling/.env.example for details:
 | CORS_ORIGINS | (empty = all) | Comma-separated allowed origins |
 | STUN_URLS | Google STUN | Comma-separated STUN URLs |
 | TURN_URLS | (optional) | TURN relay URL(s) |
-| TURN_SECRET | (optional) | coturn static auth secret for ephemeral credentials |
-| SIGNAL_RATE_MAX | 30 | Max signals per socket per window |
-| QUEUE_TTL_MS | 30000 | Offline handshake buffer TTL |
-| MAX_SOCKETS_PER_USER | 3 | Max concurrent devices per user |
+| TURN_SECRET | (optional) | Shared auth secret for ephemeral TURN credentials |
 
-Flutter Client
+### Android Client
 
-To point the client at a deployed signaling server, update the connection URL in lib/services/app_state.dart:
+To point the client at a deployed signaling server, configure the signaling URL in the app's **Settings** screen or update `DEFAULT_SIGNALING_URL` in `SecurePreferences.kt`:
 
-```dart
-// lib/services/app_state.dart
-_connectionManager!.connect('https://your-signaling-server.com');
+```kotlin
+const val DEFAULT_SIGNALING_URL = "https://your-signaling-server.com"
 ```
 
 ---
 
 ## Production Deployment
 
-The repository includes a production stack with Docker Compose.
+Deploy the signaling server to Railway or Render using the included root `Dockerfile`:
 
 ```bash
-cd codechat_signaling
+# Build Docker image
+docker build -t calypso-signaling .
 
-# Configure environment
-cp .env.example .env
-# Edit .env: set CORS_ORIGINS, TURN_SECRET, TURN_REALM, etc.
-
-# Start all services
-docker compose up --build -d
+# Run container
+docker run -p 3000:3000 calypso-signaling
 ```
-
-The stack contains the following services:
-
-| Service | Description |
-|---|---|
-| signaling | Node.js Socket.IO signaling server |
-| redis | Redis (for horizontal scaling with @socket.io/redis-adapter) |
-| turn | coturn TURN server for NAT traversal |
-| caddy | Caddy reverse proxy with automatic TLS |
-
-Note on TURN: STUN alone fails for a percentage of connections under symmetric NATs. Configure coturn with --use-auth-secret and set TURN_SECRET to enable time-limited ephemeral TURN credentials.
 
 ---
 
@@ -214,8 +203,8 @@ Note on TURN: STUN alone fails for a percentage of connections under symmetric N
 | GET | / | Service info |
 | GET | /health | Liveness probe |
 | GET | /ready | Readiness probe |
-| GET | /metrics | Counts only (no PII): presence, queue, memory |
-| GET | /api/ice-servers | STUN + optional TURN ICE server list |
+| POST | /api/prekeys | Upload PreKey bundle |
+| GET | /api/prekeys/:userCode | Fetch PreKey bundle for peer |
 
 ### Socket.IO Events
 
@@ -241,29 +230,40 @@ Server → Client
 
 ## Tech Stack
 
-Client (codechat_client)
+### Client (`android/`)
 
 | Technology | Purpose |
 |---|---|
-| Flutter | Cross-platform UI framework |
-| flutter_webrtc | WebRTC DataChannel P2P transport |
-| socket_io_client | Signaling server connection |
-| libsignal_protocol_dart | Signal Protocol E2EE |
-| sqflite_sqlcipher | AES-256 encrypted local message store |
-| flutter_secure_storage | OS-level secure key storage |
-| bip39 | BIP39 mnemonic generation & validation |
+| Kotlin + Jetpack Compose | Modern declarative native Android UI |
+| Material 3 | Obsidian dark theme & design tokens |
+| libsignal-android | Signal Protocol Double Ratchet & PreKey management |
+| Stream WebRTC Android | WebRTC DataChannel P2P transport |
+| Room + SQLCipher | Hardware-accelerated AES-256 encrypted local SQLite database |
+| EncryptedSharedPreferences | OS-level Android Keystore secure storage |
+| BIP39 (Bip39 library) | 12-word cryptographic seed phrase generation & restore |
+| Socket.IO Client Java | Real-time WebSocket connection to signaling server |
+| Dagger Hilt | Dependency injection |
+| Kotlin Coroutines & Flow | Asynchronous reactive programming |
 
-Server (codechat_signaling)
+### Server (`server/`)
 
 | Technology | Purpose |
 |---|---|
-| Node.js | Runtime |
-| Socket.IO | Real-time WebSocket events |
-| Express | HTTP server & REST endpoints |
+| Node.js (ES Modules) | Lightweight asynchronous runtime |
+| Socket.IO | Real-time WebRTC handshake event relay (SDP/ICE) |
+| Express | HTTP server & PreKey REST endpoints |
 | Helmet | HTTP security headers |
-| express-rate-limit | HTTP rate limiting |
-| pino | Structured JSON logging |
-| ioredis + @socket.io/redis-adapter | Horizontal scaling adapter |
+| express-rate-limit | Endpoint rate limiting |
+| Native Node Test Runner | Fast, dependency-free test execution |
+
+---
+
+## 📱 Google Play Release & Documentation
+
+- **Release Runbook (v1.0.2)**: [Google Play Store Release & Update Guide](docs/PLAY_STORE_RELEASE_V1.0.2_GUIDE.md)
+- **Privacy Policy**: [Privacy Policy](docs/playstore/PRIVACY_POLICY.md)
+- **Terms of Service**: [Terms of Service](docs/playstore/TERMS_OF_SERVICE.md)
+- **Data Safety Declaration**: [Data Safety Details](docs/playstore/DATA_SAFETY_DECLARATION.md)
 
 ---
 

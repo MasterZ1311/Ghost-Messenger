@@ -161,10 +161,31 @@ private fun HomeTopBar(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "👻", fontSize = 24.sp)
-                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .background(
+                            color = GhostColors.SurfaceDark,
+                            shape = CircleShape
+                        )
+                        .border(
+                            width = 1.5.dp,
+                            color = GhostColors.GhostGreen,
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "C",
+                        color = GhostColors.GhostGreen,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "GHOST",
+                    text = "CALYPSO",
                     color = GhostColors.GhostGreen,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,

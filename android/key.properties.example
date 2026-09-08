@@ -1,5 +1,5 @@
 # ============================================================
-# Ghost Messenger — Android Release Keystore Configuration
+# Calypso — Android Release Keystore Configuration
 # ============================================================
 # Copy this file to `android/key.properties` and replace the values
 # with your actual keystore credentials.
@@ -9,5 +9,5 @@
 
 storePassword=YOUR_KEYSTORE_PASSWORD
 keyPassword=YOUR_KEY_PASSWORD
-keyAlias=ghost_upload
+keyAlias=YOUR_KEY_ALIAS
 storeFile=upload-keystore.jks

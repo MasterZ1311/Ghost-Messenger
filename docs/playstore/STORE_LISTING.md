@@ -3,16 +3,16 @@
 ## 1. Core Listing Details
 
 ### Application Title
-**Ghost Messenger** (15 / 30 characters)
+**Calypso** (7 / 30 characters)
 
 ### Short Description
 **Private peer-to-peer encrypted messaging without phone numbers or emails.** (76 / 80 characters)
 
 ### Full Description
-Ghost Messenger is a privacy-first, zero-knowledge peer-to-peer (P2P) messaging application engineered for private, verifiable communications.
+Calypso is a privacy-first, zero-knowledge peer-to-peer (P2P) messaging application engineered for private, verifiable communications.
 
 COMMUNICATION WITHOUT COMPROMISE
-Unlike conventional messaging platforms that require phone numbers, email addresses, or central account registrations, Ghost Messenger operates without personal identifiers. Your identity is derived solely from a 12-word cryptographic seed phrase that you control.
+Unlike conventional messaging platforms that require phone numbers, email addresses, or central account registrations, Calypso operates without personal identifiers. Your identity is derived solely from a 12-word cryptographic seed phrase that you control.
 
 CORE CAPABILITIES
 
@@ -32,7 +32,7 @@ All messages, encryption keys, and session records stored on your device are enc
 Verify the authenticity of your communication channel with visual and numeric 60-digit fingerprints to ensure protection against adversary-in-the-middle attacks.
 
 6. Zero Telemetry and Zero Logs
-Ghost Messenger does not collect device analytics, tracking identifiers, contact lists, or usage telemetry.
+Calypso does not collect device analytics, tracking identifiers, contact lists, or usage telemetry.
 
 PERMISSIONS AND SYSTEM USAGE
 - Network Access: Required to establish signaling connections and peer-to-peer data transport.
@@ -65,9 +65,9 @@ TECHNICAL SPECIFICATIONS
 
 ## 3. Contact and Support Information
 
-- **Support Email**: support@ghostmessenger.org (or your designated support address)
-- **Website**: https://ghostmessenger.org
-- **Privacy Policy URL**: https://ghostmessenger.org/privacy-policy
+- **Support Email**: support@calypso.chat (or your designated support address)
+- **Website**: https://calypso.chat
+- **Privacy Policy URL**: https://calypso.chat/privacy-policy
 
 ---
 
@@ -81,7 +81,7 @@ TECHNICAL SPECIFICATIONS
 ### Feature Graphic
 - Format: JPEG or 24-bit PNG (no alpha)
 - Dimensions: 1024 px width by 500 px height
-- Recommendation: Dark visual theme displaying the Ghost Messenger shield emblem and the title "Ghost Messenger - Zero-Knowledge P2P Messaging".
+- Recommendation: Dark visual theme displaying the Calypso lettermark emblem and the title "Calypso - Zero-Knowledge P2P Messaging".
 
 ### Phone Screenshots
 - Quantity: Minimum 4 screenshots, Maximum 8 screenshots
