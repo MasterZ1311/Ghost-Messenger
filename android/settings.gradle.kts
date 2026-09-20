@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "GhostMessenger"
+rootProject.name = "Calypso"
 include(":app")

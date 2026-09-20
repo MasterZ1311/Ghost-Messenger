@@ -1,10 +1,15 @@
-# Android
+# ==========================================
+# Calypso — Project .gitignore
+# ==========================================
+
+# ------------------------------------------
+# Android & Gradle
+# ------------------------------------------
 *.iml
 .gradle/
 .kotlin/
+local.properties
 /local.properties
-/.idea/
-.DS_Store
 /build/
 /captures
 .externalNativeBuild/
@@ -18,35 +23,46 @@ android/app/release/
 *.apk
 *.aab
 
-# Keystore files
+# ------------------------------------------
+# Keystores, Certificates & Secrets
+# ------------------------------------------
 *.keystore
 *.jks
 *.pem
+key.properties
 android/key.properties
-
-# Firebase — never commit these
 google-services.json
 *-firebase-adminsdk-*.json
 firebase-service-account.json
 
-# Node.js (signaling server)
+# ------------------------------------------
+# Node.js (Signaling Server)
+# ------------------------------------------
 node_modules/
+server/node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
+# ------------------------------------------
+# IDE & Editor Files
+# ------------------------------------------
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+*.bak
+
+# ------------------------------------------
+# Operating System & Temp Files
+# ------------------------------------------
+.DS_Store
+Thumbs.db
+*.log

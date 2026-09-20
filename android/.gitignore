@@ -1,0 +1,31 @@
+# Gradle & Android Build Outputs
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures
+.externalNativeBuild/
+.cxx/
+app/build/
+app/release/
+*.apk
+*.aab
+
+# Keystores & Signing Credentials
+*.keystore
+*.jks
+*.pem
+key.properties
+
+# Google Services / Firebase (if added)
+google-services.json
+*-firebase-adminsdk-*.json
+firebase-service-account.json
+
+# OS & Temp
+.DS_Store
+Thumbs.db
+*.log
