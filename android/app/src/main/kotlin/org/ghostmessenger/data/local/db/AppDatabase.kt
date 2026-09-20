@@ -10,6 +10,7 @@ import org.ghostmessenger.data.local.dao.MessageDao
 import org.ghostmessenger.data.local.dao.SignalIdentityDao
 import org.ghostmessenger.data.local.dao.SignalKyberPreKeyDao
 import org.ghostmessenger.data.local.dao.SignalPreKeyDao
+import org.ghostmessenger.data.local.dao.SignalSenderKeyDao
 import org.ghostmessenger.data.local.dao.SignalSessionDao
 import org.ghostmessenger.data.local.dao.SignalSignedPreKeyDao
 import org.ghostmessenger.data.local.entities.ConversationEntity
@@ -17,6 +18,7 @@ import org.ghostmessenger.data.local.entities.MessageEntity
 import org.ghostmessenger.data.local.entities.SignalIdentityEntity
 import org.ghostmessenger.data.local.entities.SignalKyberPreKeyEntity
 import org.ghostmessenger.data.local.entities.SignalPreKeyEntity
+import org.ghostmessenger.data.local.entities.SignalSenderKeyEntity
 import org.ghostmessenger.data.local.entities.SignalSessionEntity
 import org.ghostmessenger.data.local.entities.SignalSignedPreKeyEntity
 
@@ -32,9 +34,10 @@ import org.ghostmessenger.data.local.entities.SignalSignedPreKeyEntity
         SignalPreKeyEntity::class,
         SignalSignedPreKeyEntity::class,
         SignalSessionEntity::class,
-        SignalKyberPreKeyEntity::class
+        SignalKyberPreKeyEntity::class,
+        SignalSenderKeyEntity::class   // F8: persisted SenderKeys (was in-memory only)
     ],
-    version = 1,
+    version = 2,   // Bumped: added signal_sender_keys table. Add MIGRATION_1_2 before releasing.
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -46,6 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun signalSignedPreKeyDao(): SignalSignedPreKeyDao
     abstract fun signalSessionDao(): SignalSessionDao
     abstract fun signalKyberPreKeyDao(): SignalKyberPreKeyDao
+    abstract fun signalSenderKeyDao(): SignalSenderKeyDao
 
     companion object {
         const val DATABASE_NAME = "ghost_messenger.db"
@@ -57,7 +61,10 @@ abstract class AppDatabase : RoomDatabase() {
             val factory = SupportOpenHelperFactory(passphrase)
             return Room.databaseBuilder(context, AppDatabase::class.java, DATABASE_NAME)
                 .openHelperFactory(factory)
-                .fallbackToDestructiveMigration()
+                // Security (F6): Never use fallbackToDestructiveMigration() in production.
+                // A destructive migration silently wipes all Signal sessions, trust anchors,
+                // and message history. All future schema changes MUST provide an explicit
+                // Migration object added here via .addMigrations(MIGRATION_X_Y).
                 .build()
         }
 

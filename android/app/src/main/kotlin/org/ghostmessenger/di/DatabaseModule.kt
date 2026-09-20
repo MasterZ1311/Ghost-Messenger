@@ -11,6 +11,7 @@ import org.ghostmessenger.data.local.dao.MessageDao
 import org.ghostmessenger.data.local.dao.SignalIdentityDao
 import org.ghostmessenger.data.local.dao.SignalKyberPreKeyDao
 import org.ghostmessenger.data.local.dao.SignalPreKeyDao
+import org.ghostmessenger.data.local.dao.SignalSenderKeyDao
 import org.ghostmessenger.data.local.dao.SignalSessionDao
 import org.ghostmessenger.data.local.dao.SignalSignedPreKeyDao
 import org.ghostmessenger.data.local.db.AppDatabase
@@ -65,4 +66,9 @@ object DatabaseModule {
     @Singleton
     fun provideSignalKyberPreKeyDao(database: AppDatabase): SignalKyberPreKeyDao =
         database.signalKyberPreKeyDao()
+
+    @Provides
+    @Singleton
+    fun provideSignalSenderKeyDao(database: AppDatabase): SignalSenderKeyDao =
+        database.signalSenderKeyDao()
 }

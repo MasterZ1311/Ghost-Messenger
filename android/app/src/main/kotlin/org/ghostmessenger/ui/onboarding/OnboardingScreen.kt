@@ -35,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -47,7 +48,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.ghostmessenger.ui.theme.GhostColors
+
 
 @Composable
 fun OnboardingScreen(
@@ -102,7 +106,7 @@ private fun LandingStep(
             modifier = Modifier
                 .size(88.dp)
                 .background(
-                    color = GhostColors.SurfaceDark,
+                    color = GhostColors.SurfaceSlate,
                     shape = CircleShape
                 )
                 .border(
@@ -193,6 +197,7 @@ private fun GenerateStep(
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -282,7 +287,12 @@ private fun GenerateStep(
         OutlinedButton(
             onClick = {
                 clipboardManager.setText(AnnotatedString(words.joinToString(" ")))
-                Toast.makeText(context, "Mnemonic copied to clipboard", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Mnemonic copied. Clipboard will be cleared in 60 seconds.", Toast.LENGTH_LONG).show()
+                // Security (F7): clear clipboard after 60s to limit exposure window.
+                scope.launch {
+                    delay(60_000L)
+                    clipboardManager.setText(AnnotatedString(""))
+                }
             },
             modifier = Modifier.fillMaxWidth(),
             border = BorderStroke(1.dp, GhostColors.BorderGlow),

@@ -7,6 +7,7 @@ import androidx.room.Query
 import org.ghostmessenger.data.local.entities.SignalIdentityEntity
 import org.ghostmessenger.data.local.entities.SignalKyberPreKeyEntity
 import org.ghostmessenger.data.local.entities.SignalPreKeyEntity
+import org.ghostmessenger.data.local.entities.SignalSenderKeyEntity
 import org.ghostmessenger.data.local.entities.SignalSessionEntity
 import org.ghostmessenger.data.local.entities.SignalSignedPreKeyEntity
 
@@ -120,3 +121,20 @@ interface SignalKyberPreKeyDao {
     @Query("DELETE FROM signal_kyber_prekeys")
     fun clearAll()
 }
+
+@Dao
+interface SignalSenderKeyDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertSenderKey(senderKey: SignalSenderKeyEntity)
+
+    @Query(
+        "SELECT * FROM signal_sender_keys " +
+            "WHERE senderName = :senderName AND deviceId = :deviceId AND distributionId = :distributionId " +
+            "LIMIT 1"
+    )
+    fun getSenderKey(senderName: String, deviceId: Int, distributionId: String): SignalSenderKeyEntity?
+
+    @Query("DELETE FROM signal_sender_keys")
+    fun clearAll()
+}
+

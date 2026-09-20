@@ -124,3 +124,39 @@ data class SignalKyberPreKeyEntity(
         return result
     }
 }
+
+/**
+ * Persists SenderKey records for group/sender-key distribution messages.
+ * Composite key: (senderName, deviceId, distributionId).
+ *
+ * Previously these were held only in-memory (ConcurrentHashMap), meaning they were
+ * lost on process death. This entity ensures they survive app restarts.
+ */
+@Entity(
+    tableName = "signal_sender_keys",
+    primaryKeys = ["senderName", "deviceId", "distributionId"]
+)
+data class SignalSenderKeyEntity(
+    val senderName: String,
+    val deviceId: Int,
+    val distributionId: String,
+    val recordBytes: ByteArray,
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SignalSenderKeyEntity) return false
+        return senderName == other.senderName &&
+                deviceId == other.deviceId &&
+                distributionId == other.distributionId &&
+                recordBytes.contentEquals(other.recordBytes)
+    }
+
+    override fun hashCode(): Int {
+        var result = senderName.hashCode()
+        result = 31 * result + deviceId
+        result = 31 * result + distributionId.hashCode()
+        result = 31 * result + recordBytes.contentHashCode()
+        return result
+    }
+}

@@ -91,7 +91,7 @@ class OnboardingViewModel @Inject constructor(
             initializeWithIdentity(identity, onSuccess)
         } catch (e: Exception) {
             _uiState.value = _uiState.value.copy(
-                restoreError = "Failed to derive keys: ${e.message}"
+                restoreError = "Invalid or unrecognized mnemonic phrase. Please check all 12 words and try again."
             )
         }
     }
@@ -101,15 +101,20 @@ class OnboardingViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             val result = messageRepository.initializeIdentity(identity)
             if (result.isSuccess) {
+                // Security (F2): clear mnemonic from UI state immediately after successful persist.
+                // The words are now in EncryptedSharedPreferences; they should not remain live
+                // in the StateFlow heap any longer than necessary.
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    isInitialized = true
+                    isInitialized = true,
+                    generatedMnemonicWords = emptyList(),
+                    generatedIdentity = null
                 )
                 onSuccess()
             } else {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    errorMessage = result.exceptionOrNull()?.message ?: "Failed to initialize identity"
+                    errorMessage = "Identity initialization failed. Please try again."
                 )
             }
         }

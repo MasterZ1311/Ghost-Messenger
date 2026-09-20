@@ -165,7 +165,7 @@ private fun HomeTopBar(
                     modifier = Modifier
                         .size(28.dp)
                         .background(
-                            color = GhostColors.SurfaceDark,
+                            color = GhostColors.SurfaceSlate,
                             shape = CircleShape
                         )
                         .border(

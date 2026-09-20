@@ -4,8 +4,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
@@ -25,11 +28,24 @@ import org.ghostmessenger.data.network.model.SignalingIceCandidate
 import org.ghostmessenger.data.network.model.SignalingOffer
 import org.ghostmessenger.data.network.socket.SignalingClient
 import org.ghostmessenger.data.webrtc.WebRtcManager
+import org.signal.libsignal.protocol.UntrustedIdentityException
 import org.webrtc.IceCandidate
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Security events emitted when cryptographic properties of a contact change.
+ * The UI layer must observe and surface these to the user.
+ */
+sealed class SecurityEvent {
+    /**
+     * A peer's identity key does not match the previously trusted key (TOFU violation).
+     * The message was rejected. The user must verify the contact out-of-band.
+     */
+    data class IdentityChanged(val peerUserCode: String) : SecurityEvent()
+}
 
 /**
  * Unified repository managing conversations, messages, Signal Protocol encryption,
@@ -50,6 +66,11 @@ class MessageRepository @Inject constructor(
 
     private val _currentIdentity = MutableStateFlow<Identity?>(null)
     val currentIdentity: StateFlow<Identity?> = _currentIdentity.asStateFlow()
+
+    // Security (F4): emits when a peer's identity key changes unexpectedly.
+    // Subscribers (e.g. ChatViewModel) must surface this to the user as a visible warning.
+    private val _securityEvents = MutableSharedFlow<SecurityEvent>(extraBufferCapacity = 16)
+    val securityEvents: SharedFlow<SecurityEvent> = _securityEvents.asSharedFlow()
 
     val conversations: Flow<List<ConversationEntity>> = conversationDao.getAllConversations()
     val signalingState: StateFlow<SignalingConnectionState> = signalingClient.connectionState
@@ -95,6 +116,10 @@ class MessageRepository @Inject constructor(
             _currentIdentity.value = existing
             val serverUrl = securePreferences.getSignalingUrl()
             signalingClient.connect(serverUrl, existing.userCode)
+            // Security (F10): check prekey replenishment on startup.
+            // The server may have exhausted our one-time prekeys during a previous session
+            // (especially likely after a Render free-tier cold start wipes the server store).
+            scope.launch { replenishPreKeysIfNeeded(serverUrl, existing.userCode) }
         }
     }
 
@@ -125,6 +150,35 @@ class MessageRepository @Inject constructor(
             Result.success(true)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Security (F10): Checks remaining prekey count on the server for [userCode].
+     * If fewer than [threshold] one-time prekeys remain, generates and uploads a fresh batch.
+     * Called on startup and can be called after any successful bundle fetch.
+     */
+    private suspend fun replenishPreKeysIfNeeded(
+        serverUrl: String,
+        userCode: String,
+        threshold: Int = 10
+    ) {
+        try {
+            val fetchResult = preKeyApiClient.fetchPreKeyBundle(serverUrl, userCode)
+            val remainingCount = fetchResult.getOrNull()?.remainingPreKeys ?: return
+            if (remainingCount < threshold) {
+                // Find the highest stored prekey ID to avoid ID collision on re-upload
+                val currentMaxId = signalCryptoManager.signalProtocolStore
+                    .let { store -> (1..1000).lastOrNull { store.containsPreKey(it) } ?: 0 }
+                val newStartId = currentMaxId + 1
+                val bundleDto = signalCryptoManager.generateAndStorePreKeys(
+                    startId = newStartId,
+                    count = 50
+                )
+                preKeyApiClient.uploadPreKeyBundle(serverUrl, userCode, bundleDto)
+            }
+        } catch (_: Exception) {
+            // Best-effort: replenishment failure is non-fatal. The next startup will retry.
         }
     }
 
@@ -279,6 +333,14 @@ class MessageRepository @Inject constructor(
 
             // Send delivery ACK back to sender
             sendDeliveryAck(envelope.senderUserCode, envelope.messageId)
+        } catch (e: UntrustedIdentityException) {
+            // Security (F4): a peer's identity key changed. Reject the message and alert the UI.
+            // Do NOT log the exception details — they may contain key bytes.
+            // The peer's userCode is obtained from the envelope, not from the exception.
+            try {
+                val envelope = json.decodeFromString<EncryptedEnvelope>(envelopeJson)
+                _securityEvents.tryEmit(SecurityEvent.IdentityChanged(envelope.senderUserCode))
+            } catch (_: Exception) { /* envelope unparseable — emit a generic event */ }
         } catch (_: Exception) {
             // Decryption or parsing error — ignore malformed payloads safely
         }

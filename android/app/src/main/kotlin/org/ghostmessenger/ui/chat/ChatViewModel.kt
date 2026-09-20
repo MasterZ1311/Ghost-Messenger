@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import org.ghostmessenger.data.local.entities.ConversationEntity
 import org.ghostmessenger.data.local.entities.MessageEntity
 import org.ghostmessenger.data.repository.MessageRepository
+import org.ghostmessenger.data.repository.SecurityEvent
 import org.ghostmessenger.data.webrtc.WebRtcManager
 import org.webrtc.DataChannel
 import javax.inject.Inject
@@ -20,7 +21,12 @@ import javax.inject.Inject
 data class ChatUiState(
     val messageInput: String = "",
     val isSending: Boolean = false,
-    val sendError: String? = null
+    val sendError: String? = null,
+    /**
+     * Non-null when a contact's identity key changed unexpectedly (TOFU violation).
+     * The UI must display this as a dismissable security warning banner.
+     */
+    val securityWarning: String? = null
 )
 
 @HiltViewModel
@@ -48,10 +54,25 @@ class ChatViewModel @Inject constructor(
         markAsRead()
         // Proactively attempt WebRTC P2P direct connection
         messageRepository.initiateP2PConnection(recipientUserCode)
+        // Security (F4): observe identity-change events for this conversation partner
+        viewModelScope.launch {
+            messageRepository.securityEvents.collect { event ->
+                if (event is SecurityEvent.IdentityChanged && event.peerUserCode == recipientUserCode) {
+                    _uiState.value = _uiState.value.copy(
+                        securityWarning = "\u26a0\ufe0f Security code changed for ${event.peerUserCode}. " +
+                            "This message was rejected. Verify this contact before continuing."
+                    )
+                }
+            }
+        }
     }
 
     fun updateInput(input: String) {
         _uiState.value = _uiState.value.copy(messageInput = input, sendError = null)
+    }
+
+    fun dismissSecurityWarning() {
+        _uiState.value = _uiState.value.copy(securityWarning = null)
     }
 
     fun sendMessage() {
@@ -70,7 +91,7 @@ class ChatViewModel @Inject constructor(
             } else {
                 _uiState.value = _uiState.value.copy(
                     isSending = false,
-                    sendError = result.exceptionOrNull()?.message ?: "Failed to send message"
+                    sendError = "Message failed to send. Please try again."
                 )
             }
         }

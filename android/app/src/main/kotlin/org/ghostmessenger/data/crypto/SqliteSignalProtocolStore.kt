@@ -4,11 +4,13 @@ import org.ghostmessenger.core.model.Identity
 import org.ghostmessenger.data.local.dao.SignalIdentityDao
 import org.ghostmessenger.data.local.dao.SignalKyberPreKeyDao
 import org.ghostmessenger.data.local.dao.SignalPreKeyDao
+import org.ghostmessenger.data.local.dao.SignalSenderKeyDao
 import org.ghostmessenger.data.local.dao.SignalSessionDao
 import org.ghostmessenger.data.local.dao.SignalSignedPreKeyDao
 import org.ghostmessenger.data.local.entities.SignalIdentityEntity
 import org.ghostmessenger.data.local.entities.SignalKyberPreKeyEntity
 import org.ghostmessenger.data.local.entities.SignalPreKeyEntity
+import org.ghostmessenger.data.local.entities.SignalSenderKeyEntity
 import org.ghostmessenger.data.local.entities.SignalSessionEntity
 import org.ghostmessenger.data.local.entities.SignalSignedPreKeyEntity
 import org.signal.libsignal.protocol.IdentityKey
@@ -23,7 +25,6 @@ import org.signal.libsignal.protocol.state.SessionRecord
 import org.signal.libsignal.protocol.state.SignalProtocolStore
 import org.signal.libsignal.protocol.state.SignedPreKeyRecord
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Room-backed, encrypted implementation of the official [SignalProtocolStore].
@@ -35,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap
  * - Curve25519 Signed PreKeys
  * - Double Ratchet Session Records
  * - Post-Quantum Kyber PreKeys
+ * - SenderKey records (F8: previously in-memory only, now fully persisted)
  */
 class SqliteSignalProtocolStore(
     private val localIdentityProvider: () -> Identity,
@@ -42,7 +44,8 @@ class SqliteSignalProtocolStore(
     private val preKeyDao: SignalPreKeyDao,
     private val signedPreKeyDao: SignalSignedPreKeyDao,
     private val sessionDao: SignalSessionDao,
-    private val kyberPreKeyDao: SignalKyberPreKeyDao
+    private val kyberPreKeyDao: SignalKyberPreKeyDao,
+    private val senderKeyDao: SignalSenderKeyDao
 ) : SignalProtocolStore {
 
     constructor(
@@ -51,17 +54,17 @@ class SqliteSignalProtocolStore(
         preKeyDao: SignalPreKeyDao,
         signedPreKeyDao: SignalSignedPreKeyDao,
         sessionDao: SignalSessionDao,
-        kyberPreKeyDao: SignalKyberPreKeyDao
+        kyberPreKeyDao: SignalKyberPreKeyDao,
+        senderKeyDao: SignalSenderKeyDao
     ) : this(
         localIdentityProvider = { localIdentity },
         identityDao = identityDao,
         preKeyDao = preKeyDao,
         signedPreKeyDao = signedPreKeyDao,
         sessionDao = sessionDao,
-        kyberPreKeyDao = kyberPreKeyDao
+        kyberPreKeyDao = kyberPreKeyDao,
+        senderKeyDao = senderKeyDao
     )
-
-    private val senderKeys = ConcurrentHashMap<String, SenderKeyRecord>()
 
     // ==========================================
     // IdentityKeyStore Implementation
@@ -158,7 +161,15 @@ class SqliteSignalProtocolStore(
         return if (entity != null) {
             try {
                 SessionRecord(entity.recordBytes)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                // Security (F9): log non-sensitive warning when session record is corrupt.
+                // A fresh SessionRecord means the next send will re-run X3DH handshake.
+                // This is functionally correct but loses forward-secrecy of the old session.
+                android.util.Log.w(
+                    "CalypsoSignalStore",
+                    "Session record for ${address.name} failed to deserialize — resetting to empty session. " +
+                        "Cause class: ${e.javaClass.simpleName}"
+                )
                 SessionRecord()
             }
         } else {
@@ -237,15 +248,30 @@ class SqliteSignalProtocolStore(
         distributionId: UUID,
         record: SenderKeyRecord
     ) {
-        val key = "${sender.name}_${sender.deviceId}_$distributionId"
-        senderKeys[key] = record
+        // Security (F8): persist to SQLCipher DB instead of the old in-memory ConcurrentHashMap.
+        senderKeyDao.insertSenderKey(
+            SignalSenderKeyEntity(
+                senderName = sender.name,
+                deviceId = sender.deviceId,
+                distributionId = distributionId.toString(),
+                recordBytes = record.serialize()
+            )
+        )
     }
 
     override fun loadSenderKey(
         sender: SignalProtocolAddress,
         distributionId: UUID
     ): SenderKeyRecord? {
-        val key = "${sender.name}_${sender.deviceId}_$distributionId"
-        return senderKeys[key]
+        val entity = senderKeyDao.getSenderKey(
+            senderName = sender.name,
+            deviceId = sender.deviceId,
+            distributionId = distributionId.toString()
+        ) ?: return null
+        return try {
+            SenderKeyRecord(entity.recordBytes)
+        } catch (_: Exception) {
+            null
+        }
     }
 }

@@ -4,11 +4,13 @@ import org.ghostmessenger.core.crypto.KeyManager
 import org.ghostmessenger.data.local.dao.SignalIdentityDao
 import org.ghostmessenger.data.local.dao.SignalKyberPreKeyDao
 import org.ghostmessenger.data.local.dao.SignalPreKeyDao
+import org.ghostmessenger.data.local.dao.SignalSenderKeyDao
 import org.ghostmessenger.data.local.dao.SignalSessionDao
 import org.ghostmessenger.data.local.dao.SignalSignedPreKeyDao
 import org.ghostmessenger.data.local.entities.SignalIdentityEntity
 import org.ghostmessenger.data.local.entities.SignalKyberPreKeyEntity
 import org.ghostmessenger.data.local.entities.SignalPreKeyEntity
+import org.ghostmessenger.data.local.entities.SignalSenderKeyEntity
 import org.ghostmessenger.data.local.entities.SignalSessionEntity
 import org.ghostmessenger.data.local.entities.SignalSignedPreKeyEntity
 import org.junit.Assert.assertArrayEquals
@@ -91,6 +93,18 @@ class SqliteSignalProtocolStoreTest {
         override fun clearAll() { map.clear() }
     }
 
+    private class MockSenderKeyDao : SignalSenderKeyDao {
+        val map = mutableMapOf<String, SignalSenderKeyEntity>()
+        private fun key(senderName: String, deviceId: Int, distributionId: String) =
+            "${senderName}_${deviceId}_$distributionId"
+        override fun insertSenderKey(senderKey: SignalSenderKeyEntity) {
+            map[key(senderKey.senderName, senderKey.deviceId, senderKey.distributionId)] = senderKey
+        }
+        override fun getSenderKey(senderName: String, deviceId: Int, distributionId: String) =
+            map[key(senderName, deviceId, distributionId)]
+        override fun clearAll() { map.clear() }
+    }
+
     private fun createStore(): SqliteSignalProtocolStore {
         val identity = KeyManager.createRandomIdentity()
         return SqliteSignalProtocolStore(
@@ -99,7 +113,8 @@ class SqliteSignalProtocolStoreTest {
             preKeyDao = MockPreKeyDao(),
             signedPreKeyDao = MockSignedPreKeyDao(),
             sessionDao = MockSessionDao(),
-            kyberPreKeyDao = MockKyberPreKeyDao()
+            kyberPreKeyDao = MockKyberPreKeyDao(),
+            senderKeyDao = MockSenderKeyDao()
         )
     }
 
@@ -176,7 +191,8 @@ class SqliteSignalProtocolStoreTest {
             preKeyDao = MockPreKeyDao(),
             signedPreKeyDao = MockSignedPreKeyDao(),
             sessionDao = MockSessionDao(),
-            kyberPreKeyDao = MockKyberPreKeyDao()
+            kyberPreKeyDao = MockKyberPreKeyDao(),
+            senderKeyDao = MockSenderKeyDao()
         )
 
         val bobStore = SqliteSignalProtocolStore(
@@ -185,7 +201,8 @@ class SqliteSignalProtocolStoreTest {
             preKeyDao = MockPreKeyDao(),
             signedPreKeyDao = MockSignedPreKeyDao(),
             sessionDao = MockSessionDao(),
-            kyberPreKeyDao = MockKyberPreKeyDao()
+            kyberPreKeyDao = MockKyberPreKeyDao(),
+            senderKeyDao = MockSenderKeyDao()
         )
 
         // 2. Bob publishes PreKey & SignedPreKey

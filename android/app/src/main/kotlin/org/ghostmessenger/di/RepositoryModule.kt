@@ -4,12 +4,12 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import org.ghostmessenger.core.crypto.KeyManager
 import org.ghostmessenger.core.model.Identity
 import org.ghostmessenger.data.crypto.SqliteSignalProtocolStore
 import org.ghostmessenger.data.local.dao.SignalIdentityDao
 import org.ghostmessenger.data.local.dao.SignalKyberPreKeyDao
 import org.ghostmessenger.data.local.dao.SignalPreKeyDao
+import org.ghostmessenger.data.local.dao.SignalSenderKeyDao
 import org.ghostmessenger.data.local.dao.SignalSessionDao
 import org.ghostmessenger.data.local.dao.SignalSignedPreKeyDao
 import org.ghostmessenger.data.local.prefs.SecurePreferences
@@ -28,16 +28,17 @@ object RepositoryModule {
         preKeyDao: SignalPreKeyDao,
         signedPreKeyDao: SignalSignedPreKeyDao,
         sessionDao: SignalSessionDao,
-        kyberPreKeyDao: SignalKyberPreKeyDao
+        kyberPreKeyDao: SignalKyberPreKeyDao,
+        senderKeyDao: SignalSenderKeyDao
     ): SignalProtocolStore {
-        var fallbackIdentity: Identity? = null
+        // Security: never silently create an ephemeral identity.
+        // If getIdentity() returns null, the user has not completed onboarding yet.
+        // The caller must ensure onboarding is finished before any crypto operations.
         val identityProvider: () -> Identity = {
-            securePreferences.getIdentity() ?: run {
-                if (fallbackIdentity == null) {
-                    fallbackIdentity = KeyManager.createRandomIdentity()
-                }
-                fallbackIdentity!!
-            }
+            securePreferences.getIdentity()
+                ?: throw IllegalStateException(
+                    "No persisted identity found. Complete onboarding before performing crypto operations."
+                )
         }
 
         return SqliteSignalProtocolStore(
@@ -46,7 +47,8 @@ object RepositoryModule {
             preKeyDao = preKeyDao,
             signedPreKeyDao = signedPreKeyDao,
             sessionDao = sessionDao,
-            kyberPreKeyDao = kyberPreKeyDao
+            kyberPreKeyDao = kyberPreKeyDao,
+            senderKeyDao = senderKeyDao
         )
     }
 }
