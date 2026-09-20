@@ -1,115 +1,260 @@
 /**
- * Sets up Socket.IO signaling event listeners for WebRTC negotiation and ephemeral messaging.
+ * Socket.IO Signaling Handler for Calypso.
+ *
+ * Security controls applied to every socket:
+ *  1. Admission guard: IP cap enforced at connection time.
+ *  2. register: gated on prekey bundle existence (proof of prior identity upload).
+ *  3. Per-socket rate limiter: max 20 events/second sliding window.
+ *     After 3 violations the socket is forcibly disconnected.
+ *  4. Payload validation + size limits on every event:
+ *       offer.sdp / answer.sdp  : string, max 8 KB
+ *       candidate.candidate     : string, max 512 B
+ *       envelope                : string, max 64 KB
+ *       targetUserCode          : must normalise to valid format
+ *  5. All relay events reject unregistered senders (fromUserCode must be set).
+ *  6. Error callbacks never leak internal state.
  *
  * @param {import('socket.io').Server} io
  * @param {import('../store/PresenceManager.js').PresenceManager} presenceManager
+ * @param {import('../store/InMemoryPreKeyStore.js').InMemoryPreKeyStore} preKeyStore
  */
-export function setupSignalingHandlers(io, presenceManager) {
+
+import { logger, hashIp } from '../middleware/logger.js';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+const MAX_EVENTS_PER_SECOND = 20;
+const RATE_WINDOW_MS        = 1_000;
+const MAX_VIOLATIONS        = 3;
+
+const MAX_SDP_BYTES         = 8 * 1024;        // 8 KB
+const MAX_ICE_BYTES         = 512;             // 512 B
+const MAX_ENVELOPE_BYTES    = 64 * 1024;       // 64 KB
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Creates a per-socket sliding window rate limiter. */
+function makeRateLimiter() {
+  let windowStart  = Date.now();
+  let eventCount   = 0;
+  let violations   = 0;
+
+  return function check() {
+    const now = Date.now();
+    if (now - windowStart > RATE_WINDOW_MS) {
+      windowStart = now;
+      eventCount  = 0;
+    }
+    eventCount++;
+    if (eventCount > MAX_EVENTS_PER_SECOND) {
+      violations++;
+      return { allowed: false, violations };
+    }
+    return { allowed: true, violations };
+  };
+}
+
+/**
+ * Validates a string's byte length.
+ * @param {*}      value
+ * @param {number} maxBytes
+ * @returns {boolean}
+ */
+function withinSize(value, maxBytes) {
+  if (typeof value !== 'string') return false;
+  return Buffer.byteLength(value, 'utf8') <= maxBytes;
+}
+
+/**
+ * Returns a safe error callback response — never includes internal details.
+ */
+function errCb(callback, message) {
+  if (typeof callback === 'function') callback({ success: false, error: message });
+}
+
+// ---------------------------------------------------------------------------
+// Main export
+// ---------------------------------------------------------------------------
+
+export function setupSignalingHandlers(io, presenceManager, preKeyStore) {
   io.on('connection', (socket) => {
-    // ----------------------------------------------------
-    // Registration: User registers their public UserCode
-    // ----------------------------------------------------
+    const ip     = socket.handshake.address;
+    const ipHash = hashIp(ip);
+
+    // -- IP Admission Guard --------------------------------------------------
+    if (!presenceManager.admitIp(ip)) {
+      logger.warn('connection_rejected_ip_cap', { ipHash });
+      socket.disconnect(true);
+      return;
+    }
+
+    logger.info('socket_connected', { ipHash });
+
+    // -- Per-socket rate limiter ---------------------------------------------
+    const checkRate = makeRateLimiter();
+
+    // Middleware: runs before every event on this socket
+    socket.use(([_eventName, ..._args], next) => {
+      const { allowed, violations } = checkRate();
+      if (!allowed) {
+        logger.warn('rate_limit_exceeded', { ipHash, violations });
+        if (violations >= MAX_VIOLATIONS) {
+          socket.disconnect(true);
+        }
+        return; // drop the event silently (no callback here — middleware signature)
+      }
+      next();
+    });
+
+    // -----------------------------------------------------------------------
+    // register — Gate: bundle must exist for userCode
+    // -----------------------------------------------------------------------
     socket.on('register', (data, callback) => {
-      const userCode = typeof data === 'string' ? data : data?.userCode;
+      const userCode   = typeof data === 'string' ? data : data?.userCode;
       const normalized = presenceManager.normalizeUserCode(userCode);
 
       if (!normalized) {
-        if (typeof callback === 'function') {
-          callback({ success: false, error: 'Invalid userCode format' });
-        }
-        return;
+        return errCb(callback, 'Invalid userCode format');
+      }
+
+      // Require the client to have uploaded a prekey bundle first
+      if (!preKeyStore.hasBundleFor(normalized)) {
+        logger.warn('register_no_bundle', { ipHash });
+        return errCb(callback, 'No prekey bundle found for this userCode');
+      }
+
+      const result = presenceManager.register(normalized, socket.id);
+      if (!result.ok) {
+        logger.warn('register_rejected', { reason: result.reason, ipHash });
+        return errCb(callback, 'Registration rejected');
       }
 
       socket.join(normalized);
-      presenceManager.register(normalized, socket.id);
+      logger.info('socket_registered', { ipHash });
 
       if (typeof callback === 'function') {
         callback({ success: true, userCode: normalized });
       }
-
       socket.emit('registered', { success: true, userCode: normalized });
     });
 
-    // ----------------------------------------------------
-    // Presence: Query if a peer is currently connected
-    // ----------------------------------------------------
+    // -----------------------------------------------------------------------
+    // check-presence
+    // -----------------------------------------------------------------------
     socket.on('check-presence', (data, callback) => {
-      const targetUserCode = typeof data === 'string' ? data : data?.targetUserCode;
-      const normalized = presenceManager.normalizeUserCode(targetUserCode);
-      const online = presenceManager.isOnline(normalized);
+      const raw        = typeof data === 'string' ? data : data?.targetUserCode;
+      const normalized = presenceManager.normalizeUserCode(raw);
 
-      const response = { targetUserCode: normalized, online };
-      if (typeof callback === 'function') {
-        callback(response);
+      if (!normalized) {
+        return errCb(callback, 'Invalid targetUserCode');
       }
+
+      const online   = presenceManager.isOnline(normalized);
+      const response = { targetUserCode: normalized, online };
+
+      if (typeof callback === 'function') callback(response);
       socket.emit('presence-result', response);
     });
 
-    // ----------------------------------------------------
-    // WebRTC: SDP Offer Relay
-    // ----------------------------------------------------
+    // -----------------------------------------------------------------------
+    // webrtc-offer  (SDP offer relay)
+    // -----------------------------------------------------------------------
     socket.on('webrtc-offer', (data) => {
-      const fromUserCode = presenceManager.getUserCode(socket.id);
+      const fromUserCode   = presenceManager.getUserCode(socket.id);
       const targetUserCode = presenceManager.normalizeUserCode(data?.targetUserCode);
+      const offer          = data?.offer;
 
-      if (!fromUserCode || !targetUserCode || !data?.offer) return;
+      if (!fromUserCode) return; // unregistered sender — silent drop
 
-      io.to(targetUserCode).emit('webrtc-offer', {
-        fromUserCode,
-        offer: data.offer
-      });
-    });
-
-    // ----------------------------------------------------
-    // WebRTC: SDP Answer Relay
-    // ----------------------------------------------------
-    socket.on('webrtc-answer', (data) => {
-      const fromUserCode = presenceManager.getUserCode(socket.id);
-      const targetUserCode = presenceManager.normalizeUserCode(data?.targetUserCode);
-
-      if (!fromUserCode || !targetUserCode || !data?.answer) return;
-
-      io.to(targetUserCode).emit('webrtc-answer', {
-        fromUserCode,
-        answer: data.answer
-      });
-    });
-
-    // ----------------------------------------------------
-    // WebRTC: ICE Candidate Relay
-    // ----------------------------------------------------
-    socket.on('ice-candidate', (data) => {
-      const fromUserCode = presenceManager.getUserCode(socket.id);
-      const targetUserCode = presenceManager.normalizeUserCode(data?.targetUserCode);
-
-      if (!fromUserCode || !targetUserCode || !data?.candidate) return;
-
-      io.to(targetUserCode).emit('ice-candidate', {
-        fromUserCode,
-        candidate: data.candidate
-      });
-    });
-
-    // ----------------------------------------------------
-    // Ephemeral Relay: Encrypted Envelope Relay Fallback
-    // ----------------------------------------------------
-    socket.on('encrypted-envelope', (data, callback) => {
-      const fromUserCode = presenceManager.getUserCode(socket.id);
-      const targetUserCode = presenceManager.normalizeUserCode(data?.targetUserCode);
-
-      if (!fromUserCode || !targetUserCode || !data?.envelope) {
-        if (typeof callback === 'function') {
-          callback({ success: false, error: 'Invalid message envelope' });
-        }
+      if (!targetUserCode) {
+        logger.warn('offer_invalid_target', { ipHash });
         return;
+      }
+
+      if (!offer || typeof offer.sdp !== 'string' || !withinSize(offer.sdp, MAX_SDP_BYTES)) {
+        logger.warn('offer_invalid_sdp', { ipHash });
+        return;
+      }
+
+      io.to(targetUserCode).emit('webrtc-offer', { fromUserCode, offer });
+    });
+
+    // -----------------------------------------------------------------------
+    // webrtc-answer  (SDP answer relay)
+    // -----------------------------------------------------------------------
+    socket.on('webrtc-answer', (data) => {
+      const fromUserCode   = presenceManager.getUserCode(socket.id);
+      const targetUserCode = presenceManager.normalizeUserCode(data?.targetUserCode);
+      const answer         = data?.answer;
+
+      if (!fromUserCode) return;
+
+      if (!targetUserCode) {
+        logger.warn('answer_invalid_target', { ipHash });
+        return;
+      }
+
+      if (!answer || typeof answer.sdp !== 'string' || !withinSize(answer.sdp, MAX_SDP_BYTES)) {
+        logger.warn('answer_invalid_sdp', { ipHash });
+        return;
+      }
+
+      io.to(targetUserCode).emit('webrtc-answer', { fromUserCode, answer });
+    });
+
+    // -----------------------------------------------------------------------
+    // ice-candidate  (ICE candidate relay)
+    // -----------------------------------------------------------------------
+    socket.on('ice-candidate', (data) => {
+      const fromUserCode   = presenceManager.getUserCode(socket.id);
+      const targetUserCode = presenceManager.normalizeUserCode(data?.targetUserCode);
+      const candidate      = data?.candidate;
+
+      if (!fromUserCode) return;
+
+      if (!targetUserCode) {
+        logger.warn('ice_invalid_target', { ipHash });
+        return;
+      }
+
+      if (
+        !candidate ||
+        typeof candidate.candidate !== 'string' ||
+        !withinSize(candidate.candidate, MAX_ICE_BYTES)
+      ) {
+        logger.warn('ice_invalid_candidate', { ipHash });
+        return;
+      }
+
+      io.to(targetUserCode).emit('ice-candidate', { fromUserCode, candidate });
+    });
+
+    // -----------------------------------------------------------------------
+    // encrypted-envelope  (Fallback relay for Signal Protocol ciphertext)
+    // -----------------------------------------------------------------------
+    socket.on('encrypted-envelope', (data, callback) => {
+      const fromUserCode   = presenceManager.getUserCode(socket.id);
+      const targetUserCode = presenceManager.normalizeUserCode(data?.targetUserCode);
+      const envelope       = data?.envelope;
+
+      if (!fromUserCode) {
+        return errCb(callback, 'Not registered');
+      }
+
+      if (!targetUserCode) {
+        return errCb(callback, 'Invalid targetUserCode');
+      }
+
+      if (typeof envelope !== 'string' || !withinSize(envelope, MAX_ENVELOPE_BYTES)) {
+        return errCb(callback, 'Invalid or oversized envelope');
       }
 
       const isDelivered = presenceManager.isOnline(targetUserCode);
       if (isDelivered) {
-        io.to(targetUserCode).emit('encrypted-envelope', {
-          fromUserCode,
-          envelope: data.envelope
-        });
+        io.to(targetUserCode).emit('encrypted-envelope', { fromUserCode, envelope });
       }
 
       if (typeof callback === 'function') {
@@ -117,11 +262,13 @@ export function setupSignalingHandlers(io, presenceManager) {
       }
     });
 
-    // ----------------------------------------------------
-    // Disconnect: Clean up presence registry
-    // ----------------------------------------------------
+    // -----------------------------------------------------------------------
+    // disconnect — clean up presence and IP counter
+    // -----------------------------------------------------------------------
     socket.on('disconnect', () => {
       presenceManager.unregister(socket.id);
+      presenceManager.releaseIp(ip);
+      logger.info('socket_disconnected', { ipHash });
     });
   });
 }
