@@ -19,6 +19,8 @@ hilt-navigation = "1.2.0"
 security-crypto = "1.1.0-alpha06"
 sqlite = "2.7.0"
 ksp = "2.0.21-1.0.28"
+google-services = "4.4.2"
+firebase-bom = "33.7.0"
 
 [libraries]
 # Compose
@@ -71,6 +73,10 @@ coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutin
 # Image
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 
+# Firebase (Zero-knowledge wake-up push)
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebase-bom" }
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
+
 # Core Android
 core-ktx = { group = "androidx.core", name = "core-ktx", version = "1.15.0" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version = "2.1.4" }
@@ -86,3 +92,4 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+google-services = { id = "com.google.gms.google-services", version.ref = "google-services" }

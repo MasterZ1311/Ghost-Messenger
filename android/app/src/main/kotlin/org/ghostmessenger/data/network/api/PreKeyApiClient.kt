@@ -99,6 +99,30 @@ class PreKeyApiClient @Inject constructor(
         }
     }
 
+    /**
+     * Registers local device's FCM token for zero-knowledge wake-up pings.
+     */
+    suspend fun registerFcmToken(
+        baseUrl: String,
+        userCode: String,
+        fcmToken: String
+    ): Result<Boolean> {
+        return try {
+            val url = cleanUrl(baseUrl) + "/api/prekeys/fcm-token"
+            val response = httpClient.post(url) {
+                contentType(ContentType.Application.Json)
+                setBody(org.ghostmessenger.data.network.model.FcmTokenRequest(userCode = userCode, fcmToken = fcmToken))
+            }
+            if (response.status == HttpStatusCode.OK) {
+                Result.success(true)
+            } else {
+                Result.failure(Exception("Failed to register FCM token: ${response.status.value}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun cleanUrl(url: String): String =
         url.trimEnd('/')
 }

@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.google.services)
 }
 
 val keystorePropertiesFile = rootProject.file("key.properties")
@@ -148,6 +149,10 @@ dependencies {
 
     // Image Loading
     implementation(libs.coil.compose)
+
+    // Firebase Cloud Messaging (Wake-up push)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     // Unit Testing
     testImplementation(libs.junit)

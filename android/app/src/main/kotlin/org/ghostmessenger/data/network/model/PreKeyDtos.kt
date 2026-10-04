@@ -64,3 +64,10 @@ data class HealthStatusDto(
     val activeUsers: Int? = null,
     val storedBundles: Int? = null
 )
+
+@Serializable
+data class FcmTokenRequest(
+    val userCode: String,
+    val fcmToken: String
+)
+

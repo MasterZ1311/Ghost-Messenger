@@ -32,6 +32,17 @@ class SignalingClient @Inject constructor() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var socket: Socket? = null
     private var currentUserCode: String? = null
+    private var currentFcmToken: String? = null
+
+    fun updateFcmToken(token: String) {
+        currentFcmToken = token
+        socket?.let { sock ->
+            if (sock.connected()) {
+                val data = JSONObject().apply { put("fcmToken", token) }
+                sock.emit("register-fcm", data)
+            }
+        }
+    }
 
     private val _connectionState = MutableStateFlow(SignalingConnectionState.DISCONNECTED)
     val connectionState: StateFlow<SignalingConnectionState> = _connectionState.asStateFlow()
@@ -77,7 +88,12 @@ class SignalingClient @Inject constructor() {
             sock.on(Socket.EVENT_CONNECT) {
                 _connectionState.value = SignalingConnectionState.CONNECTED
                 // Register local UserCode
-                val regData = JSONObject().apply { put("userCode", userCode) }
+                val regData = JSONObject().apply {
+                    put("userCode", userCode)
+                    if (!currentFcmToken.isNullOrBlank()) {
+                        put("fcmToken", currentFcmToken)
+                    }
+                }
                 sock.emit("register", regData)
             }
 

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ChallengeStore } from '../store/ChallengeStore.js';
 import { generateTurnCredentials, isTurnConfigured } from '../middleware/turnCredentials.js';
 import { logger } from '../middleware/logger.js';
+import { fcmService } from '../services/fcmService.js';
 
 // Shared challenge store instance (exported for injection in tests)
 export const challengeStore = new ChallengeStore();
@@ -167,6 +168,22 @@ export function createPreKeyRouter(preKeyStore, presenceManager) {
 
     const creds = generateTurnCredentials(normalized);
     return res.status(200).json({ success: true, credentials: creds });
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /api/prekeys/fcm-token
+  // Registers an FCM device token for zero-knowledge background wake-up pings.
+  // Body: { userCode, fcmToken }
+  // ---------------------------------------------------------------------------
+  router.post('/fcm-token', (req, res) => {
+    const { userCode, fcmToken } = req.body || {};
+    const normalized = preKeyStore.normalizeUserCode(userCode);
+    if (!normalized || !fcmToken || typeof fcmToken !== 'string') {
+      return res.status(400).json({ success: false, error: 'Invalid userCode or fcmToken' });
+    }
+
+    fcmService.registerToken(normalized, fcmToken);
+    return res.status(200).json({ success: true });
   });
 
   return router;

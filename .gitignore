@@ -34,6 +34,7 @@ android/key.properties
 google-services.json
 *-firebase-adminsdk-*.json
 firebase-service-account.json
+serviceAccountKey.json
 
 # ------------------------------------------
 # Node.js (Signaling Server)

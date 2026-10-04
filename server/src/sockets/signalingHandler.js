@@ -21,6 +21,7 @@
 
 import { logger, hashIp } from '../middleware/logger.js';
 import { OfflineQueueStore } from '../store/OfflineQueueStore.js';
+import { fcmService } from '../services/fcmService.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -136,6 +137,10 @@ export function setupSignalingHandlers(io, presenceManager, preKeyStore, offline
       socket.join(normalized);
       logger.info('socket_registered', { ipHash });
 
+      if (data?.fcmToken && typeof data.fcmToken === 'string') {
+        fcmService.registerToken(normalized, data.fcmToken);
+      }
+
       if (typeof callback === 'function') {
         callback({ success: true, userCode: normalized });
       }
@@ -147,6 +152,16 @@ export function setupSignalingHandlers(io, presenceManager, preKeyStore, offline
         for (const item of pending) {
           socket.emit('encrypted-envelope', item);
         }
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // register-fcm
+    // -----------------------------------------------------------------------
+    socket.on('register-fcm', (data) => {
+      const fromUserCode = presenceManager.getUserCode(socket.id);
+      if (fromUserCode && data?.fcmToken && typeof data.fcmToken === 'string') {
+        fcmService.registerToken(fromUserCode, data.fcmToken);
       }
     });
 
@@ -188,7 +203,12 @@ export function setupSignalingHandlers(io, presenceManager, preKeyStore, offline
         return;
       }
 
-      io.to(targetUserCode).emit('webrtc-offer', { fromUserCode, offer });
+      const isOnline = presenceManager.isOnline(targetUserCode);
+      if (isOnline) {
+        io.to(targetUserCode).emit('webrtc-offer', { fromUserCode, offer });
+      } else {
+        fcmService.sendWakeUpPing(targetUserCode);
+      }
     });
 
     // -----------------------------------------------------------------------
@@ -266,6 +286,7 @@ export function setupSignalingHandlers(io, presenceManager, preKeyStore, offline
         io.to(targetUserCode).emit('encrypted-envelope', { fromUserCode, envelope });
       } else {
         offlineQueueStore.enqueue(targetUserCode, { fromUserCode, envelope });
+        fcmService.sendWakeUpPing(targetUserCode);
       }
 
       if (typeof callback === 'function') {
