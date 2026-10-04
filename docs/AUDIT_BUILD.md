@@ -150,3 +150,11 @@ ok 4 - Full Server REST & Socket.IO Integration Tests (17/17 pass)
    - Added symmetric `SafetyNumberGenerator` (SHA-512 based 30-digit numeric fingerprint) and corresponding verification screen & view model.
 6. **Added Offline Message Queuing**:
    - Implemented `OfflineQueueStore` on the signaling relay server, buffering encrypted blobs with 24-hour TTL and flushing upon socket authentication.
+7. **Resolved SQLCipher JNI Native Linkage UnsatisfiedLinkError**:
+   - Called `System.loadLibrary("sqlcipher")` in `GhostMessengerApp.onCreate()` and defensively in `AppDatabase.companion object init` to bind native `SQLiteConnection.nativeOpen` before Room open helper instantiation.
+8. **Implemented Room Schema MIGRATION_1_2**:
+   - Created `MIGRATION_1_2` creating table `signal_sender_keys` (`senderName`, `deviceId`, `distributionId`, `recordBytes`, `updatedAt`), preserving existing tables and strictly maintaining the zero destructive migrations rule (F6).
+9. **Hardened Android Keystore Desynchronization**:
+   - Implemented self-healing `createEncryptedPrefs()` in `SecurePreferences.kt` that intercepts `AEADBadTagException` or corrupted Keystore keysets, clears damaged preferences, and regenerates keys cleanly.
+10. **Integrated Zero-Knowledge Ephemeral Push Notifications**:
+   - Added `CalypsoFirebaseMessagingService.kt` and `server/src/services/fcmService.js` for ephemeral background wake-up pings with zero metadata or message payload leakage.

@@ -256,8 +256,9 @@ All data persisted on the Android client device is encrypted.
 
 ### 6.1 SQLCipher Database Encryption
 
-- **Database Engine**: Room with `net.zetetic:sqlcipher-android` (`DatabaseModule.kt:28-44`).
+- **Database Engine**: Room with `net.zetetic:sqlcipher-android` (`DatabaseModule.kt:28-44`, `AppDatabase.kt:40-105`).
 - **Algorithm**: AES-256 in CBC mode with HMAC-SHA256 page integrity checks.
+- **Native JNI Initialization**: Invokes `System.loadLibrary("sqlcipher")` in `GhostMessengerApp.onCreate()` and `AppDatabase.companion object init` to link native cryptographic routines (`SQLiteConnection.nativeOpen`) into the ART runtime before database opening.
 - **Tables Encrypted**:
   - `messages`: All chat message contents, timestamps, statuses, and delivery states.
   - `conversations`: Conversation summaries and unread counters.
@@ -265,12 +266,25 @@ All data persisted on the Android client device is encrypted.
   - `signal_signed_prekeys`: Signed prekey private/public records.
   - `signal_sessions`: Double Ratchet active session state, chain keys, and root keys.
   - `signal_identities`: Trusted remote identity keys.
+  - `signal_sender_keys`: Signal group sender key distribution records (added in Schema v2 via `MIGRATION_1_2`).
 
 ### 6.2 Key Management via Android Keystore
 
 - The database encryption passphrase is generated using `SecureRandom` (32 bytes / 256 bits).
-- It is saved in `EncryptedSharedPreferences` (`SecurePreferences.kt:30-45`), which uses:
+- It is saved in `EncryptedSharedPreferences` (`SecurePreferences.kt:26-55`), which uses:
   - **Key encryption**: AES-256-SIV (Deterministic Authenticated Encryption).
   - **Value encryption**: AES-256-GCM.
   - **Master Key**: Managed by the hardware-backed **Android Keystore System** (TEE or StrongBox Keymaster where available).
+- **Self-Healing Keystore Desynchronization**: If the master key is invalidated by OS restore or Keystore corruption throwing `AEADBadTagException`, `createEncryptedPrefs()` automatically deletes corrupted preferences files, creates a fresh master key, and restores operational stability without crash loops.
 - The user's BIP-39 mnemonic is similarly stored in `EncryptedSharedPreferences` and cleared from memory when not in use.
+
+---
+
+## 7. Zero-Knowledge Push Notification Isolation (FCM)
+
+Calypso isolates the push notification infrastructure (Google Play Services / Firebase Cloud Messaging) completely from the cryptographic boundary:
+
+1. **Zero Cryptographic Material**: FCM push notifications contain zero encryption keys, zero ciphertext payloads, zero initialization vectors, and zero message identifiers.
+2. **Strict Ephemeral Ping**: The wire payload consists entirely of `{"type": "wake_up"}`.
+3. **Decoupled Key Exchange**: All end-to-end decryption occurs exclusively through the Double Ratchet pipeline after the client establishes a direct, TLS-encrypted connection to the signaling server or direct WebRTC peer.
+4. **Untrusted Transit**: Even in the event of compromised Google Play Services or intermediate routing compromise, adversaries learn nothing about conversations, sender identities, or message content.

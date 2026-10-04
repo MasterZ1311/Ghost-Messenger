@@ -60,7 +60,7 @@ The Android client is organized according to Modern Android Architecture guideli
 
 ```
 android/app/src/main/kotlin/org/ghostmessenger/
-|-- CalypsoApp.kt                     # Application entry point, Hilt initialization
+|-- GhostMessengerApp.kt              # Application entry point, JNI SQLCipher load, Hilt initialization
 |-- core/
 |   |-- crypto/
 |   |   |-- Base32.kt                 # RFC 4648 Base32 encoding (5-bit alphabet)
@@ -80,25 +80,27 @@ android/app/src/main/kotlin/org/ghostmessenger/
 |   |   |   |-- MessageDao.kt         # Message CRUD and status transitions
 |   |   |   `-- SignalDao.kt          # PreKey, SignedPreKey, Session, Identity DAOs
 |   |   |-- db/
-|   |   |   `-- AppDatabase.kt        # Room database with SQLCipher encryption factory
+|   |   |   `-- AppDatabase.kt        # Room database with SQLCipher JNI loader & MIGRATION_1_2
 |   |   |-- entities/
 |   |   |   |-- ConversationEntity.kt # Conversation room table
 |   |   |   |-- MessageEntity.kt      # Message room table
 |   |   |   `-- SignalEntities.kt     # Signal Protocol persistent storage entities
 |   |   `-- prefs/
-|   |       `-- SecurePreferences.kt  # EncryptedSharedPreferences wrapper
+|   |       `-- SecurePreferences.kt  # Self-healing EncryptedSharedPreferences (Keystore backed)
 |   |-- network/
 |   |   |-- api/
-|   |   |   `-- PreKeyApiClient.kt    # HTTP REST client for PreKey exchange
+|   |   |   `-- PreKeyApiClient.kt    # HTTP REST client for PreKey & FCM token exchange
+|   |   |-- fcm/
+|   |   |   `-- CalypsoFirebaseMessagingService.kt # Zero-knowledge background wake-up service
 |   |   |-- model/
-|   |   |   |-- PreKeyDtos.kt         # REST DTOs for PreKey bundles
+|   |   |   |-- PreKeyDtos.kt         # REST DTOs for PreKey bundles & FCM registration
 |   |   |   `-- SignalingEvents.kt    # Socket.IO event payload definitions
 |   |   `-- socket/
-|   |       `-- SignalingClient.kt    # Socket.IO client managing presence & signaling
+|   |       `-- SignalingClient.kt    # Socket.IO client managing presence, FCM & signaling
 |   |-- repository/
 |   |   `-- MessageRepository.kt      # Central coordinator for message send/receive
 |   `-- webrtc/
-|       `-- WebRtcManager.kt          # PeerConnectionFactory, DataChannel lifecycle
+|       `-- WebRtcManager.kt          # PeerConnectionFactory, DataChannel lifecycle, TURN relay
 |-- di/
 |   |-- DatabaseModule.kt             # Hilt providers for SQLCipher database and DAOs
 |   |-- NetworkModule.kt              # Hilt providers for OkHttpClient and JSON
@@ -118,7 +120,9 @@ android/app/src/main/kotlin/org/ghostmessenger/
 The dependency graph enforces singleton lifecycles for stateful, resource-heavy subsystems:
 
 - `DatabaseModule` (`android/app/src/main/kotlin/org/ghostmessenger/di/DatabaseModule.kt:18-65`):
-  - Provides `AppDatabase`: Instantiated via `Room.databaseBuilder()` and configured with `SupportFactory(passphrase)` from SQLCipher.
+  - Provides `AppDatabase`: Instantiated via `Room.databaseBuilder()` and configured with `SupportOpenHelperFactory(passphrase)` from SQLCipher (`AppDatabase.kt:84-100`).
+  - **SQLCipher JNI Initialization**: Calls `System.loadLibrary("sqlcipher")` in `GhostMessengerApp.onCreate()` and defensively within `AppDatabase.companion object init`. This guarantees that `libsqlcipher.so` is loaded into the process before Room attempts to open encrypted SQLite connections, preventing `UnsatisfiedLinkError`.
+  - **Explicit Schema Migration (`MIGRATION_1_2`)**: Implements migration from version 1 to 2 by creating the `signal_sender_keys` table for Signal group sender key distribution. Enforces zero destructive migration (`fallbackToDestructiveMigration()` is strictly omitted per security rule F6).
   - Derives `MessageDao`, `ConversationDao`, and `SignalDao`.
   - Provides `SqliteSignalProtocolStore`: Implements `SignalProtocolStore` backed by `SignalDao`.
 - `NetworkModule` (`android/app/src/main/kotlin/org/ghostmessenger/di/NetworkModule.kt:15-32`):
@@ -126,7 +130,7 @@ The dependency graph enforces singleton lifecycles for stateful, resource-heavy 
   - Provides `Json` instance configured with `ignoreUnknownKeys = true` and `encodeDefaults = true`.
 - `RepositoryModule` (`android/app/src/main/kotlin/org/ghostmessenger/di/RepositoryModule.kt:16-56`):
   - Provides `SignalCryptoManager`, injecting `SqliteSignalProtocolStore`.
-  - Provides `SecurePreferences` using `EncryptedSharedPreferences`.
+  - Provides `SecurePreferences`: Uses `EncryptedSharedPreferences` backed by the hardware-backed Android Keystore with self-healing recovery against Keystore desynchronization or corrupted keysets.
   - Provides `WebRtcManager` and `SignalingClient`.
   - Provides `MessageRepository`, binding together crypto, network, database, and WebRTC.
 
@@ -185,7 +189,9 @@ server/
 |   |   |-- logger.js                 # Privacy-safe structured JSON logger (hashed IPs)
 |   |   `-- turnCredentials.js        # Ephemeral HMAC-SHA1 TURN credential generator
 |   |-- routes/
-|   |   `-- prekeys.js                # PreKey upload, challenge, and fetch REST API
+|   |   `-- prekeys.js                # PreKey upload, challenge, fetch & FCM REST API
+|   |-- services/
+|   |   `-- fcmService.js             # Zero-knowledge Firebase Cloud Messaging wake-up service
 |   |-- sockets/
 |   |   `-- signalingHandler.js       # WebRTC signaling router, rate limiter, admission
 |   `-- store/
@@ -342,3 +348,53 @@ If an transmission error occurs during initial dispatch, the message transitions
 - **Race Condition Mitigations**:
   - In-memory lookups, array shifts, and map deletions execute synchronously within tick boundaries, avoiding multi-threaded mutex contention.
 - **Per-Socket Sliding Window Rate Limiting**: Max 20 events/second per socket. Exceeding the threshold triggers socket termination after 3 violations.
+
+---
+
+## 7. Zero-Knowledge Background Push Architecture (FCM)
+
+Calypso incorporates a zero-knowledge background wake-up system using Firebase Cloud Messaging (FCM) to ensure message delivery reliability when the Android app process is suspended or killed in the background, without compromising user anonymity or end-to-end encryption.
+
+### 7.1 Zero-Knowledge Privacy Guarantees
+- **No Payload in Push**: FCM payloads contain strictly a control ping: `{"data": {"type": "wake_up"}}`.
+- **No Sender Identification**: The identity of the sender, their UserCode, or any message metadata is never included in the FCM notification.
+- **No Private Material**: Neither Google's push servers nor intermediate routers can observe message contents, cryptographic headers, or conversation relationships.
+- **Decoupled Delivery**: When the device receives the high-priority data ping, `CalypsoFirebaseMessagingService.kt` launches a background coroutine, establishes a direct TLS connection to the user-configured Calypso signaling server, pulls queued envelopes from `OfflineQueueStore.js`, and decrypts them locally using the Signal Double Ratchet.
+
+### 7.2 Push Registration & Routing Flow
+1. **Device Token Generation**: `CalypsoFirebaseMessagingService.onNewToken(token)` receives the device token and stores it in `SecurePreferences.setFcmToken(token)`.
+2. **Server Registration**:
+   - Via REST: `PreKeyApiClient.registerFcmToken(serverUrl, userCode, fcmToken)` posts to `POST /api/prekeys/fcm-token`.
+   - Via Socket: `SignalingClient.connect()` includes `fcmToken` in the initial `register` Socket.IO payload or emits `register-fcm`.
+3. **Server In-Memory Mapping**: `fcmService.js` stores the association in an in-memory map: `Map<UserCode, fcmToken>`. This mapping is completely volatile and never written to disk or persistent storage.
+4. **Trigger Conditions**:
+   - **Offline Envelope**: When an envelope is sent to an offline peer, `signalingHandler.js` enqueues it in `OfflineQueueStore` and invokes `fcmService.sendWakeUpPing(targetUserCode)`.
+   - **Offline WebRTC Call/Offer**: When a peer initiates an offer to an offline peer, `fcmService.sendWakeUpPing(targetUserCode)` is invoked.
+5. **Client Wake-Up**: Upon receiving the ping, the app re-establishes its signaling connection, registers its UserCode, drains all pending offline messages, updates Room database state, and notifies the user via high-priority local notification channel (`calypso_messages_channel`).
+
+---
+
+## 8. Failure Modes, Self-Healing & System Resilience
+
+Calypso incorporates defense-in-depth mechanisms to recover automatically from hardware, cryptographic, and network fault conditions:
+
+### 8.1 SQLCipher Native Linkage Resilience
+- **Fault Condition**: On certain Android ABI configurations and Android 14+ devices, `SupportOpenHelperFactory` attempts to instantiate database connections before Room triggers JNI library loading, resulting in `java.lang.UnsatisfiedLinkError: No implementation found for long net.zetetic.database.sqlcipher.SQLiteConnection.nativeOpen`.
+- **Mitigation**: `GhostMessengerApp.kt:8-12` invokes `System.loadLibrary("sqlcipher")` in `onCreate()` before Hilt initializes database singletons. Additionally, `AppDatabase.kt:59-65` executes `System.loadLibrary("sqlcipher")` defensively within its static companion initializer block.
+
+### 8.2 Room Schema Migration Invariants
+- **Fault Condition**: Altering the database schema without an explicit migration normally prompts developers to invoke `fallbackToDestructiveMigration()`. In a privacy messenger, destructive migration wipes identity keys, Double Ratchet sessions, and chat history.
+- **Mitigation**: Standing security rule F6 strictly prohibits destructive fallback. Database version 2 introduces `MIGRATION_1_2` (`AppDatabase.kt:67-82`), creating the `signal_sender_keys` table using standard SQL DDL while preserving all existing tables and data integrity.
+
+### 8.3 Android Keystore Corruption & Reinstall Recovery
+- **Fault Condition**: Reinstalling the app or restoring from Google Cloud Backup can leave orphaned `EncryptedSharedPreferences` XML files where the underlying Android Keystore hardware keys have been rotated or purged by the OS, causing fatal `AEADBadTagException` or `GeneralSecurityException` crashes during startup.
+- **Mitigation**: `SecurePreferences.kt:26-55` implements a self-healing instantiation loop (`createEncryptedPrefs()`). If master key verification or preferences decryption fails, the damaged file is safely purged, a new master key is generated from the hardware Keystore, and clean preferences are initialized, completely preventing fatal crash loops.
+
+### 8.4 Multi-Port WebRTC ICE Relay Resilience
+- **Fault Condition**: Symmetric NATs, strict enterprise firewalls, and carrier-grade NATs (CGNAT) often block UDP traffic on non-standard ports or throttle STUN discovery.
+- **Mitigation**: `WebRtcManager.kt:52-89` configures layered ICE candidates:
+  1. Default public STUN relays (`stun:stun.l.google.com:19302`, `stun:stun1.l.google.com:19302`).
+  2. Primary TURN UDP relay on Port 80 (`turn:global.relay.metered.ca:80`).
+  3. Secondary TURN UDP relay on Port 443 (`turn:global.relay.metered.ca:443`).
+  4. Encrypted TURN TLS over TCP on Port 443 (`turns:global.relay.metered.ca:443?transport=tcp`).
+

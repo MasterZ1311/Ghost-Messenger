@@ -13,8 +13,8 @@ This guide outlines the complete procedure for building, verifying, and publishi
 | **Release Version** | **`1.0.2`** (`versionCode: 3`) | Production release version |
 | **Minimum SDK** | `26` (Android 8.0 Oreo) | Broad device compatibility |
 | **Target SDK** | `36` (Android 16 / Latest) | Exceeds Google Play's required API level |
-| **Signing Keystore** | `android/upload-keystore.jks` | Google Play Upload Key |
-| **Key Alias** | `ghost_upload` | Alias configured in `key.properties` |
+| **Signing Keystore** | `android/upload-keystore.jks` | Google Play Upload Key (backup at `upload-keystore.jks.bak`) |
+| **Key Alias** | `calypso_upload` | Alias configured in `key.properties` |
 | **Target Production Binary** | `app-release.aab` | Android App Bundle (Required by Google Play) |
 | **Testing Binary** | `app-release.apk` | Standalone APK for local sideloading |
 
@@ -29,19 +29,19 @@ This guide outlines the complete procedure for building, verifying, and publishi
 Before running the build, ensure your signing credentials are in place:
 
 1. **Verify Keystore Files**:
-   - `android/upload-keystore.jks` must exist in the `android/` directory.
+   - `android/upload-keystore.jks` must exist in the `android/` directory (signed with `calypso_upload`).
    - `android/key.properties` must exist and contain the matching credentials:
      ```properties
-     storePassword=MasterZGeek007PWDGHOST_MESSENGER
-     keyPassword=GM007MZ
-     keyAlias=ghost_upload
+     storePassword=FaOYZADcKaJgkqBgo4qK0ZKwF0EtT1Yo
+     keyPassword=FaOYZADcKaJgkqBgo4qK0ZKwF0EtT1Yo
+     keyAlias=calypso_upload
      storeFile=upload-keystore.jks
      ```
 
 2. **Verify Server Endpoint**:
    - [`SecurePreferences.kt`](../android/app/src/main/kotlin/org/ghostmessenger/data/local/prefs/SecurePreferences.kt) has `DEFAULT_SIGNALING_URL` configured to your live production server:
      ```kotlin
-     const val DEFAULT_SIGNALING_URL = "https://ghost-messenger-fp8w.onrender.com"
+     const val DEFAULT_SIGNALING_URL = "https://ghost-messenger-iptc.onrender.com"
      ```
 
 ---
@@ -89,7 +89,7 @@ Before submitting to Google Play, verify that the release build runs smoothly on
    - [ ] App opens cleanly without crashing (verifies R8/ProGuard rules).
    - [ ] BIP-39 mnemonic generation or wallet restoration functions.
    - [ ] Local encrypted database (SQLCipher) initializes without errors.
-   - [ ] Signaling connects to the live server (`ghost-messenger-fp8w.onrender.com`).
+   - [ ] Signaling connects to the live server (`ghost-messenger-iptc.onrender.com`).
 
 ---
 

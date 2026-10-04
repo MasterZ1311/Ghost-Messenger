@@ -206,8 +206,11 @@ docker run -p 3000:3000 calypso-signaling
 | GET | / | Service info |
 | GET | /health | Liveness probe |
 | GET | /ready | Readiness probe |
-| POST | /api/prekeys | Upload PreKey bundle |
-| GET | /api/prekeys/:userCode | Fetch PreKey bundle for peer |
+| GET | /api/prekeys/challenge/:userCode | Issue cryptographic challenge nonce |
+| POST | /api/prekeys/upload | Upload PreKey bundle with HMAC signature |
+| GET | /api/prekeys/:userCode | Fetch PreKey bundle for peer (consumes one-time prekey) |
+| POST | /api/prekeys/fcm-token | Register device FCM token for zero-knowledge wake-up pings |
+| POST | /api/turn-credentials | Generate ephemeral TURN credentials |
 
 ### Socket.IO Events
 
@@ -215,18 +218,20 @@ Client → Server
 
 | Event | Payload | Notes |
 |---|---|---|
-| join | userCode: string | Register presence |
-| signal | { toCode, fromCode, signalData } | Relay SDP/ICE; fromCode must match joined code |
-| check_presence | userCode: string | Query whether a user is online |
+| register | { userCode, fcmToken? } | Register presence and optional FCM wake-up token |
+| register-fcm | { fcmToken } | Register or update device FCM token |
+| signal | { toCode, fromCode, signalData } | Relay SDP/ICE or offline envelope |
+| check_presence | userCode | Query whether a user is currently online |
 
 Server → Client
 
 | Event | Payload | Notes |
 |---|---|---|
-| joined | { userCode } | Join acknowledged |
-| signal | { fromCode, signalData } | Incoming relayed signal |
-| peer_status | { toCode, status: 'queued' } | Recipient offline; signal buffered |
+| registered | { userCode, success } | Registration acknowledged |
+| signal | { fromCode, signalData } | Incoming relayed signal or envelope |
+| peer_status | { toCode, status: 'queued' } | Recipient offline; signal buffered in volatile memory |
 | presence_result | { userCode, online } | Presence query result |
+| offline_messages | Array<{ fromUserCode, envelope }> | Flushed upon registration for offline queue draining |
 | error_message | { code, message } | Error response |
 
 ---

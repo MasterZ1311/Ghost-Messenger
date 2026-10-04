@@ -176,6 +176,26 @@ The signaling backend exposes REST endpoints under `/api/prekeys` and `/` (`serv
 
 ---
 
+#### `POST /api/prekeys/fcm-token`
+- **Purpose**: Registers an FCM registration token for zero-knowledge wake-up pings.
+- **Request Body**:
+  ```json
+  {
+    "userCode": "5J9L-2P4X",
+    "fcmToken": "c_2v7X...device-token..."
+  }
+  ```
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true
+  }
+  ```
+- **Error Codes**:
+  - `400 Bad Request`: Invalid UserCode or missing `fcmToken`.
+
+---
+
 ## 3. Socket.IO Real-Time Event Protocol
 
 Real-time signaling is managed by `setupSignalingHandlers()` (`server/src/sockets/signalingHandler.js:83-285`).
@@ -206,7 +226,8 @@ Oversized payloads are dropped with an error callback and not forwarded to peers
 
 | Event Name | Arguments | Description & Validation |
 |---|---|---|
-| `register` | `userCode: string, callback: function` | Registers socket presence. Requires that the UserCode has an existing PreKey bundle uploaded. Fails if user is already connected on 3 sockets. |
+| `register` | `{ userCode: string, fcmToken?: string }, callback: function` | Registers socket presence. Optional `fcmToken` registers device for zero-knowledge wake-up pings. Requires that the UserCode has an existing PreKey bundle uploaded. Fails if user is already connected on 3 sockets. |
+| `register-fcm` | `{ fcmToken: string }` | Registers or updates device FCM token for an already connected socket. |
 | `signal` | `data: object, callback: function` | Relays WebRTC signaling or offline envelopes to `data.toUserCode`. Sender must be registered. |
 | `check_presence` | `userCode: string, callback: function` | Queries online status for a specific peer. Returns `{ online: boolean }`. |
 
@@ -229,14 +250,15 @@ Oversized payloads are dropped with an error callback and not forwarded to peers
 
 ### 4.1 ICE Server Configuration
 
-Default STUN servers are configured in `WebRtcManager.kt:52-78`:
+Default STUN servers are configured in `WebRtcManager.kt:52-89`:
 - `stun:stun.l.google.com:19302`
 - `stun:stun1.l.google.com:19302`
 - `stun:stun.relay.metered.ca:80`
 
-If custom TURN credentials are saved in `SecurePreferences` (`getTurnUsername()`, `getTurnPassword()`, `getTurnServerUrl()`), they are dynamically appended:
-- `turn:<host>:<port>` (UDP transport)
-- `turn:<host>:<port>?transport=tcp` (TCP fallback)
+If TURN credentials are configured in `SecurePreferences` (`DEFAULT_TURN_USERNAME`, `DEFAULT_TURN_PASSWORD`, or user-specified custom relays), multi-port fallback ICE servers are loaded:
+- `turn:global.relay.metered.ca:80` (Standard UDP relay)
+- `turn:global.relay.metered.ca:443` (HTTPS-port UDP relay, bypassing restrictive firewall blocks)
+- `turns:global.relay.metered.ca:443?transport=tcp` (Encrypted TLS over TCP fallback for symmetric/corporate NATs)
 
 ### 4.2 DataChannel Parameters
 
@@ -271,7 +293,14 @@ When Client A sends an encrypted message to Client B, but Client B has no active
 2. `signalingHandler.js:235-245` detects user B is offline.
 3. Envelope is enqueued via `offlineQueueStore.enqueue(toUserCode, { fromUserCode, envelope })`.
 4. Client A receives an acknowledgment callback: `{ success: true, queued: true }`.
-5. When Client B connects and sends `register(userCode)`:
+5. Simultaneously, `fcmService.sendWakeUpPing(targetUserCode)` sends an ephemeral wake-up notification to device B.
+6. When Client B wakes up and registers:
    - `signalingHandler.js:140-148` calls `offlineQueueStore.dequeueAll(userCode)`.
    - All buffered envelopes are emitted to Client B in an `offline_messages` event.
    - The queue for Client B is immediately deleted from server memory.
+
+### 5.3 Zero-Knowledge Push Protocol
+- **Wire Payload**: `{"data": {"type": "wake_up"}}` (Priority: High).
+- **Zero Information Leak**: FCM contains no sender UserCode, no recipient UserCode, no timestamp, and no message ciphertext.
+- **Auto-Pruning**: If Firebase reports `messaging/registration-token-not-registered` or `invalid-registration-token`, the token is immediately pruned from the server's in-memory cache without logging or persisting the erroring identifier.
+

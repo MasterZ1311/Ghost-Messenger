@@ -46,6 +46,9 @@ Every pull request submitted to the repository must strictly comply with the **C
 ### 2.3 Android Architecture & Concurrency Checklist
 - [ ] **Dispatcher Usage**: Are all disk, network, and cryptographic operations dispatched to `Dispatchers.IO`?
 - [ ] **Room DB Concurrency**: Does message insertion use `OnConflictStrategy.IGNORE` (`MessageDao.kt:24`) to handle simultaneous DataChannel/relay arrivals safely?
+- [ ] **Zero Destructive Migrations**: Is `fallbackToDestructiveMigration()` strictly omitted? Are schema changes accompanied by explicit `Migration` instances (e.g. `MIGRATION_1_2` in `AppDatabase.kt:67-82`)?
+- [ ] **SQLCipher Native Loading**: Is `System.loadLibrary("sqlcipher")` invoked in `GhostMessengerApp.onCreate()` and `AppDatabase.companion object init` before SQLite connections open?
+- [ ] **Keystore Recovery**: Does `SecurePreferences` wrap Keystore decryption in self-healing logic (`createEncryptedPrefs()`) to prevent fatal crash loops on reinstall?
 - [ ] **State Flow Observation**: Are UI state mutations performed via unidirectional data flow using `StateFlow` and Compose state collectors?
 - [ ] **Resource Disposal**: Are `PeerConnection`, `DataChannel`, and `AppDatabase` resources closed gracefully on teardown?
 
@@ -56,6 +59,11 @@ Every pull request submitted to the repository must strictly comply with the **C
 - [ ] **Payload Bounds**: Are incoming SDP offers (<= 8 KB), ICE candidates (<= 512 B), and envelopes (<= 64 KB) strictly size-checked?
 - [ ] **Zero Persistence**: Does the server avoid writing any user data, messages, or keys to disk or persistent databases?
 
+### 2.5 Zero-Knowledge Push Checklist (FCM)
+- [ ] **Zero Payload Leak**: Are FCM notifications strictly ephemeral wake-up pings (`{"type": "wake_up"}`) without sender userCodes, recipient keys, or ciphertexts?
+- [ ] **Zero Server Logs**: Does `fcmService.js` avoid logging userCodes or device tokens in production?
+- [ ] **Decoupled Decryption**: Does the client pull and decrypt messages exclusively over the TLS signaling socket / WebRTC channel after wake-up?
+
 ---
 
 ## 3. Critical Entry Point & Navigation Map
@@ -64,6 +72,7 @@ Use this index to quickly locate and inspect core implementations:
 
 | Subsystem | Source File | Line Range | Key Responsibility |
 |---|---|---|---|
+| **App Startup & JNI** | [`GhostMessengerApp.kt`](../android/app/src/main/kotlin/org/ghostmessenger/GhostMessengerApp.kt) | `L8-L13` | Application entry point, `System.loadLibrary("sqlcipher")` |
 | **BIP-39 Mnemonic** | [`KeyManager.kt`](../android/app/src/main/kotlin/org/ghostmessenger/core/crypto/KeyManager.kt) | `L30-L65` | Mnemonic generation, validation, and PBKDF2 seed derivation |
 | **Deterministic Keys** | [`KeyManager.kt`](../android/app/src/main/kotlin/org/ghostmessenger/core/crypto/KeyManager.kt) | `L111-L158` | HKDF-SHA256 identity key and clamped 14-bit registration ID |
 | **UserCode Generation**| [`UserCodeUtils.kt`](../android/app/src/main/kotlin/org/ghostmessenger/core/crypto/UserCodeUtils.kt) | `L20-L54` | SHA-256 to 40-bit Base32 UserCode derivation (`XXXX-XXXX`) |
@@ -72,14 +81,16 @@ Use this index to quickly locate and inspect core implementations:
 | **Message Encryption**| [`SignalCryptoManager.kt`](../android/app/src/main/kotlin/org/ghostmessenger/core/crypto/SignalCryptoManager.kt) | `L165-L216` | Double Ratchet encryption for content and control packets |
 | **Message Decryption**| [`SignalCryptoManager.kt`](../android/app/src/main/kotlin/org/ghostmessenger/core/crypto/SignalCryptoManager.kt) | `L221-L243` | Envelope decryption (`PreKeySignalMessage` & `SignalMessage`) |
 | **Safety Numbers** | [`SafetyNumberGenerator.kt`](../android/app/src/main/kotlin/org/ghostmessenger/core/crypto/SafetyNumberGenerator.kt) | `L17-L50` | 30-digit SHA-512 symmetric fingerprint computation |
-| **SQLCipher DB** | [`DatabaseModule.kt`](../android/app/src/main/kotlin/org/ghostmessenger/di/DatabaseModule.kt) | `L28-L44` | Room database builder with SQLCipher encryption factory |
-| **Secure Preferences**| [`SecurePreferences.kt`](../android/app/src/main/kotlin/org/ghostmessenger/data/local/prefs/SecurePreferences.kt) | `L18-L75` | EncryptedSharedPreferences backed by Android Keystore |
-| **WebRTC Lifecycle** | [`WebRtcManager.kt`](../android/app/src/main/kotlin/org/ghostmessenger/data/webrtc/WebRtcManager.kt) | `L42-L79` | ICE servers, PeerConnectionFactory, DataChannel configuration |
+| **Room & Migrations** | [`AppDatabase.kt`](../android/app/src/main/kotlin/org/ghostmessenger/data/local/db/AppDatabase.kt) | `L50-L105` | SQLCipher database builder, `MIGRATION_1_2` (`signal_sender_keys`) |
+| **Secure Preferences**| [`SecurePreferences.kt`](../android/app/src/main/kotlin/org/ghostmessenger/data/local/prefs/SecurePreferences.kt) | `L23-L65` | Self-healing `EncryptedSharedPreferences` backed by Android Keystore |
+| **FCM Push Service** | [`CalypsoFirebaseMessagingService.kt`](../android/app/src/main/kotlin/org/ghostmessenger/data/network/fcm/CalypsoFirebaseMessagingService.kt) | `L32-L115` | Zero-knowledge wake-up push handler & local notifications |
+| **WebRTC Lifecycle** | [`WebRtcManager.kt`](../android/app/src/main/kotlin/org/ghostmessenger/data/webrtc/WebRtcManager.kt) | `L42-L89` | Multi-port ICE servers, PeerConnectionFactory, DataChannel lifecycle |
 | **Reconnection Logic**| [`WebRtcManager.kt`](../android/app/src/main/kotlin/org/ghostmessenger/data/webrtc/WebRtcManager.kt) | `L265-L285` | Exponential backoff retry (2s, 4s, 8s) on connection failure |
 | **Message Dispatch** | [`MessageRepository.kt`](../android/app/src/main/kotlin/org/ghostmessenger/data/repository/MessageRepository.kt) | `L222-L302` | Session check -> Encrypt -> DataChannel / Relay fallback -> Save |
 | **Incoming Handling** | [`MessageRepository.kt`](../android/app/src/main/kotlin/org/ghostmessenger/data/repository/MessageRepository.kt) | `L307-L394` | Decrypt -> Persist -> Dispatch ACK -> Identity check alert |
 | **Server Challenge** | [`ChallengeStore.js`](../server/src/store/ChallengeStore.js) | `L25-L90` | 64-character nonce issuance, HMAC-SHA256 signature verification |
 | **Server PreKey Store**| [`InMemoryPreKeyStore.js`](../server/src/store/InMemoryPreKeyStore.js) | `L38-L165` | In-memory bundle cache, atomic pop, identity key locking |
+| **Server Push Service**| [`fcmService.js`](../server/src/services/fcmService.js) | `L10-L105` | Ephemeral wake-up push dispatcher, auto token pruning |
 | **Offline Queue** | [`OfflineQueueStore.js`](../server/src/store/OfflineQueueStore.js) | `L16-L128` | 50-envelope cap, 24h TTL, in-memory transient buffer |
 | **Socket Limiter** | [`signalingHandler.js`](../server/src/sockets/signalingHandler.js) | `L41-L59` | Per-socket sliding window rate limiter (max 20 events/sec) |
 

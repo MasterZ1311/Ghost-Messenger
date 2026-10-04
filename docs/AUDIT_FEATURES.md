@@ -88,3 +88,29 @@
 | Read receipt status updates | **VERIFIED** | [MessageRepository.kt:327-340](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/repository/MessageRepository.kt#L327-L340) | Updates status to `STATUS_READ` upon receiving decrypted read receipt |
 | Read receipt UI indicators | **VERIFIED** | [ChatScreen.kt:255-265](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/ui/chat/ChatScreen.kt#L255-L265) | Double checkmark glyphs rendered in NeonCyan for delivered, GhostGreen for read |
 | Duplicate message handling | **VERIFIED** | [MessageDao.kt:22-26](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/local/dao/MessageDao.kt#L22-L26) | `OnConflictStrategy.IGNORE` ensures first arrival wins and prevents status overwriting |
+
+---
+
+### 7. Zero-Knowledge Background Push Notifications (FCM)
+
+| Sub-Claim | Status | Evidence | Notes |
+|---|---|---|---|
+| Ephemeral wake-up push service | **VERIFIED** | [CalypsoFirebaseMessagingService.kt:32-115](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/network/fcm/CalypsoFirebaseMessagingService.kt#L32-L115) | Receives high-priority data pings (`type: wake_up`), wakes up signaling client, and posts local notification |
+| Zero metadata / payload in push | **VERIFIED** | [CalypsoFirebaseMessagingService.kt:26-31](file:///e:/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/network/fcm/CalypsoFirebaseMessagingService.kt#L26-L31), [fcmService.js:68-88](file:///e:/Github/Ghost%20Messenger/server/src/services/fcmService.js#L68-L88) | Strictly no plaintext, no sender user code, and no message payloads transmitted over FCM |
+| FCM token registration via REST | **VERIFIED** | [PreKeyApiClient.kt:102-124](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/network/api/PreKeyApiClient.kt#L102-L124) | Registers token at `POST /api/prekeys/fcm-token` upon token generation or refresh |
+| Real-time socket token registration | **VERIFIED** | [SignalingClient.kt:36-44](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/network/socket/SignalingClient.kt#L36-L44) | Transmits FCM token during initial `register` or via `register-fcm` event |
+| Server-side offline push trigger | **VERIFIED** | [signalingHandler.js:203-212](file:///e:/Github/Ghost%20Messenger/server/src/sockets/signalingHandler.js#L203-L212), [signalingHandler.js:286-291](file:///e:/Github/Ghost%20Messenger/server/src/sockets/signalingHandler.js#L286-L291) | Triggers `fcmService.sendWakeUpPing()` when WebRTC offers or encrypted envelopes are routed to offline peers |
+| Expired token auto-pruning | **VERIFIED** | [fcmService.js:93-102](file:///e:/Github/Ghost%20Messenger/server/src/services/fcmService.js#L93-L102) | Prunes un-registered tokens from volatile memory on `messaging/registration-token-not-registered` |
+
+---
+
+### 8. SQLCipher Native Linkage, Room Schema Migrations & Keystore Resilience
+
+| Sub-Claim | Status | Evidence | Notes |
+|---|---|---|---|
+| Explicit SQLCipher JNI loading | **VERIFIED** | [GhostMessengerApp.kt:8-12](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/GhostMessengerApp.kt#L8-L12), [AppDatabase.kt:59-65](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/local/db/AppDatabase.kt#L59-L65) | `System.loadLibrary("sqlcipher")` loaded before Room open helper calls; resolves `UnsatisfiedLinkError` |
+| Non-destructive Room migration (v1->v2) | **VERIFIED** | [AppDatabase.kt:67-82](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/local/db/AppDatabase.kt#L67-L82) | `MIGRATION_1_2` creates `signal_sender_keys` table without wiping existing sessions or chat history |
+| Elimination of destructive migration | **VERIFIED** | [AppDatabase.kt:89-94](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/local/db/AppDatabase.kt#L89-L94) | `fallbackToDestructiveMigration()` strictly omitted to enforce rule F6 |
+| Keystore self-healing recovery | **VERIFIED** | [SecurePreferences.kt:26-55](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/local/prefs/SecurePreferences.kt#L26-L55) | Self-healing instantiation loop catches `AEADBadTagException`, purges corrupted files, and rebuilds MasterKey cleanly |
+| Multi-port TURN relay fallback | **VERIFIED** | [WebRtcManager.kt:57-89](file:///e:/Github/Ghost%20Messenger/android/app/src/main/kotlin/org/ghostmessenger/data/webrtc/WebRtcManager.kt#L57-L89) | Configures Metered TURN on port 80 (UDP), port 443 (UDP), and port 443 (TCP fallback) |
+
