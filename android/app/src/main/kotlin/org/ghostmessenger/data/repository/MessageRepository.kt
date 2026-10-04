@@ -28,6 +28,7 @@ import org.ghostmessenger.data.network.model.SignalingIceCandidate
 import org.ghostmessenger.data.network.model.SignalingOffer
 import org.ghostmessenger.data.network.socket.SignalingClient
 import org.ghostmessenger.data.webrtc.WebRtcManager
+import org.ghostmessenger.BuildConfig
 import org.signal.libsignal.protocol.UntrustedIdentityException
 import org.webrtc.IceCandidate
 import java.nio.charset.StandardCharsets
@@ -116,10 +117,11 @@ class MessageRepository @Inject constructor(
             _currentIdentity.value = existing
             val serverUrl = securePreferences.getSignalingUrl()
             signalingClient.connect(serverUrl, existing.userCode)
-            // Security (F10): check prekey replenishment on startup.
-            // The server may have exhausted our one-time prekeys during a previous session
-            // (especially likely after a Render free-tier cold start wipes the server store).
-            scope.launch { replenishPreKeysIfNeeded(serverUrl, existing.userCode) }
+            // Security (F10): check prekey replenishment and signed prekey rotation on startup
+            scope.launch {
+                replenishPreKeysIfNeeded(serverUrl, existing.userCode)
+                rotateSignedPreKeyIfNeeded(serverUrl, existing.userCode)
+            }
         }
     }
 
@@ -177,8 +179,27 @@ class MessageRepository @Inject constructor(
                 )
                 preKeyApiClient.uploadPreKeyBundle(serverUrl, userCode, bundleDto)
             }
-        } catch (_: Exception) {
-            // Best-effort: replenishment failure is non-fatal. The next startup will retry.
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.w("Calypso", "PreKey replenishment failed: ${e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    /**
+     * Checks if the local Signed PreKey has expired (> 7 days) and rotates it if needed.
+     */
+    private suspend fun rotateSignedPreKeyIfNeeded(serverUrl: String, userCode: String) {
+        try {
+            if (signalCryptoManager.shouldRotateSignedPreKey()) {
+                val newSignedPreKey = signalCryptoManager.rotateSignedPreKey()
+                val bundleDto = signalCryptoManager.generateAndStorePreKeys(startId = 1, count = 50)
+                preKeyApiClient.uploadPreKeyBundle(serverUrl, userCode, bundleDto)
+            }
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.w("Calypso", "Signed PreKey rotation failed: ${e.javaClass.simpleName}")
+            }
         }
     }
 
@@ -291,7 +312,31 @@ class MessageRepository @Inject constructor(
 
             if (envelope.type == EncryptedEnvelope.TYPE_DELIVERY_ACK) {
                 // Sender received our message ACK
-                messageDao.updateStatus(envelope.messageId, MessageEntity.STATUS_DELIVERED)
+                val targetMsgId = if (envelope.ciphertext.isNotBlank()) {
+                    try {
+                        signalCryptoManager.decryptMessage(envelope)
+                    } catch (_: Exception) {
+                        envelope.messageId
+                    }
+                } else {
+                    envelope.messageId
+                }
+                messageDao.updateStatus(targetMsgId, MessageEntity.STATUS_DELIVERED)
+                return
+            }
+
+            if (envelope.type == EncryptedEnvelope.TYPE_READ_RECEIPT) {
+                // Peer read our message
+                val targetMsgId = if (envelope.ciphertext.isNotBlank()) {
+                    try {
+                        signalCryptoManager.decryptMessage(envelope)
+                    } catch (_: Exception) {
+                        envelope.messageId
+                    }
+                } else {
+                    envelope.messageId
+                }
+                messageDao.updateStatus(targetMsgId, MessageEntity.STATUS_READ)
                 return
             }
 
@@ -341,27 +386,75 @@ class MessageRepository @Inject constructor(
                 val envelope = json.decodeFromString<EncryptedEnvelope>(envelopeJson)
                 _securityEvents.tryEmit(SecurityEvent.IdentityChanged(envelope.senderUserCode))
             } catch (_: Exception) { /* envelope unparseable — emit a generic event */ }
-        } catch (_: Exception) {
-            // Decryption or parsing error — ignore malformed payloads safely
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.w("Calypso", "Incoming envelope handling failed: ${e.javaClass.simpleName}")
+            }
         }
     }
 
     private fun sendDeliveryAck(targetUserCode: String, messageId: String) {
         val myIdentity = _currentIdentity.value ?: return
-        val ackEnvelope = EncryptedEnvelope(
-            type = EncryptedEnvelope.TYPE_DELIVERY_ACK,
-            senderUserCode = myIdentity.userCode,
-            recipientUserCode = targetUserCode,
-            messageId = messageId,
-            ciphertext = "",
-            timestamp = System.currentTimeMillis()
-        )
-        val ackJson = json.encodeToString(ackEnvelope)
+        try {
+            val ackEnvelope = if (signalCryptoManager.hasSession(targetUserCode)) {
+                signalCryptoManager.encryptControlMessage(
+                    senderUserCode = myIdentity.userCode,
+                    recipientUserCode = targetUserCode,
+                    envelopeMessageId = UUID.randomUUID().toString(),
+                    payload = messageId,
+                    type = EncryptedEnvelope.TYPE_DELIVERY_ACK
+                )
+            } else {
+                EncryptedEnvelope(
+                    type = EncryptedEnvelope.TYPE_DELIVERY_ACK,
+                    senderUserCode = myIdentity.userCode,
+                    recipientUserCode = targetUserCode,
+                    messageId = messageId,
+                    ciphertext = "",
+                    timestamp = System.currentTimeMillis()
+                )
+            }
+            val ackJson = json.encodeToString(ackEnvelope)
 
-        if (webRtcManager.isDataChannelOpen(targetUserCode)) {
-            webRtcManager.sendData(targetUserCode, ackJson.toByteArray(StandardCharsets.UTF_8))
-        } else {
-            signalingClient.sendEncryptedEnvelope(targetUserCode, ackJson)
+            if (webRtcManager.isDataChannelOpen(targetUserCode)) {
+                webRtcManager.sendData(targetUserCode, ackJson.toByteArray(StandardCharsets.UTF_8))
+            } else {
+                signalingClient.sendEncryptedEnvelope(targetUserCode, ackJson)
+            }
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.w("Calypso", "sendDeliveryAck failed: ${e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    /**
+     * Sends an encrypted read receipt for a delivered message.
+     */
+    fun sendReadReceipt(targetUserCode: String, messageId: String) {
+        val myIdentity = _currentIdentity.value ?: return
+        scope.launch {
+            try {
+                if (!signalCryptoManager.hasSession(targetUserCode)) return@launch
+                val readEnvelope = signalCryptoManager.encryptControlMessage(
+                    senderUserCode = myIdentity.userCode,
+                    recipientUserCode = targetUserCode,
+                    envelopeMessageId = UUID.randomUUID().toString(),
+                    payload = messageId,
+                    type = EncryptedEnvelope.TYPE_READ_RECEIPT
+                )
+                val readJson = json.encodeToString(readEnvelope)
+
+                if (webRtcManager.isDataChannelOpen(targetUserCode)) {
+                    webRtcManager.sendData(targetUserCode, readJson.toByteArray(StandardCharsets.UTF_8))
+                } else {
+                    signalingClient.sendEncryptedEnvelope(targetUserCode, readJson)
+                }
+            } catch (e: Exception) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w("Calypso", "sendReadReceipt failed: ${e.javaClass.simpleName}")
+                }
+            }
         }
     }
 
@@ -369,6 +462,9 @@ class MessageRepository @Inject constructor(
      * Initiates WebRTC SDP offer creation and signaling dispatch.
      */
     fun initiateP2PConnection(targetUserCode: String) {
+        webRtcManager.setReconnectCallback(targetUserCode) {
+            initiateP2PConnection(targetUserCode)
+        }
         scope.launch {
             try {
                 val offer = webRtcManager.createOffer(targetUserCode) { candidate ->
@@ -380,7 +476,11 @@ class MessageRepository @Inject constructor(
                     )
                 }
                 signalingClient.sendOffer(targetUserCode, offer.description, "offer")
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w("Calypso", "initiateP2PConnection failed: ${e.javaClass.simpleName}")
+                }
+            }
         }
     }
 
@@ -396,7 +496,11 @@ class MessageRepository @Inject constructor(
                     )
                 }
                 signalingClient.sendAnswer(offer.fromUserCode, answer.description, "answer")
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w("Calypso", "handleIncomingOffer failed: ${e.javaClass.simpleName}")
+                }
+            }
         }
     }
 
@@ -404,7 +508,11 @@ class MessageRepository @Inject constructor(
         scope.launch {
             try {
                 webRtcManager.setRemoteAnswer(answer.fromUserCode, answer.sdp)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w("Calypso", "handleIncomingAnswer failed: ${e.javaClass.simpleName}")
+                }
+            }
         }
     }
 
@@ -418,6 +526,11 @@ class MessageRepository @Inject constructor(
      */
     suspend fun markConversationAsRead(userCode: String) {
         conversationDao.markAsRead(userCode)
+        val recentMessages = messageDao.getRecentMessages(userCode, limit = 10)
+        val latestIncoming = recentMessages.firstOrNull { !it.isOutgoing }
+        if (latestIncoming != null) {
+            sendReadReceipt(userCode, latestIncoming.id)
+        }
     }
 
     /**

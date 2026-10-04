@@ -54,7 +54,7 @@ class SignalCryptoManager @Inject constructor(
         }
 
         // 2. Generate and store Signed PreKey
-        val signedPreKeyId = 1
+        val signedPreKeyId = (signalProtocolStore.loadSignedPreKeys().maxOfOrNull { it.id } ?: 0) + 1
         val signedKeyPair = Curve.generateKeyPair()
         val signature = Curve.calculateSignature(
             signalProtocolStore.identityKeyPair.privateKey,
@@ -77,6 +77,48 @@ class SignalCryptoManager @Inject constructor(
                 signature = base64Encode(signature)
             ),
             preKeys = preKeyDtos
+        )
+    }
+
+    /**
+     * Checks if the active Signed PreKey is older than [maxAgeMs] (default 7 days).
+     */
+    fun shouldRotateSignedPreKey(maxAgeMs: Long = 7L * 24 * 60 * 60 * 1000L): Boolean {
+        val latest = signalProtocolStore.loadSignedPreKeys().maxByOrNull { it.timestamp } ?: return true
+        return (System.currentTimeMillis() - latest.timestamp) > maxAgeMs
+    }
+
+    /**
+     * Generates a new Signed PreKey with an incremented ID, stores it, and returns the DTO.
+     * Prunes old signed prekeys keeping the two most recent.
+     */
+    fun rotateSignedPreKey(): SignedPreKeyDto {
+        val nextId = (signalProtocolStore.loadSignedPreKeys().maxOfOrNull { it.id } ?: 0) + 1
+        val signedKeyPair = Curve.generateKeyPair()
+        val signature = Curve.calculateSignature(
+            signalProtocolStore.identityKeyPair.privateKey,
+            signedKeyPair.publicKey.serialize()
+        )
+        val signedRecord = SignedPreKeyRecord(
+            nextId,
+            System.currentTimeMillis(),
+            signedKeyPair,
+            signature
+        )
+        signalProtocolStore.storeSignedPreKey(nextId, signedRecord)
+
+        // Prune old signed prekeys, keeping only the 2 most recent
+        val allKeys = signalProtocolStore.loadSignedPreKeys().sortedByDescending { it.timestamp }
+        if (allKeys.size > 2) {
+            allKeys.drop(2).forEach { oldKey ->
+                signalProtocolStore.removeSignedPreKey(oldKey.id)
+            }
+        }
+
+        return SignedPreKeyDto(
+            keyId = nextId,
+            publicKey = base64Encode(signedKeyPair.publicKey.serialize()),
+            signature = base64Encode(signature)
         )
     }
 
@@ -149,6 +191,31 @@ class SignalCryptoManager @Inject constructor(
     }
 
     /**
+     * Encrypts a control message (e.g. delivery ACK or read receipt) into an [EncryptedEnvelope].
+     */
+    fun encryptControlMessage(
+        senderUserCode: String,
+        recipientUserCode: String,
+        envelopeMessageId: String,
+        payload: String,
+        type: Int
+    ): EncryptedEnvelope {
+        val address = SignalProtocolAddress(recipientUserCode, 1)
+        val cipher = SessionCipher(signalProtocolStore, address)
+        val plaintextBytes = payload.toByteArray(StandardCharsets.UTF_8)
+        val ciphertextMessage = cipher.encrypt(plaintextBytes)
+
+        return EncryptedEnvelope(
+            type = type,
+            senderUserCode = senderUserCode,
+            recipientUserCode = recipientUserCode,
+            messageId = envelopeMessageId,
+            ciphertext = base64Encode(ciphertextMessage.serialize()),
+            timestamp = System.currentTimeMillis()
+        )
+    }
+
+    /**
      * Decrypts an incoming [EncryptedEnvelope] into plaintext.
      */
     fun decryptMessage(envelope: EncryptedEnvelope): String {
@@ -160,8 +227,14 @@ class SignalCryptoManager @Inject constructor(
             EncryptedEnvelope.TYPE_PREKEY_SIGNAL_MESSAGE -> {
                 cipher.decrypt(PreKeySignalMessage(ciphertextBytes))
             }
-            EncryptedEnvelope.TYPE_SIGNAL_MESSAGE -> {
-                cipher.decrypt(SignalMessage(ciphertextBytes))
+            EncryptedEnvelope.TYPE_SIGNAL_MESSAGE,
+            EncryptedEnvelope.TYPE_DELIVERY_ACK,
+            EncryptedEnvelope.TYPE_READ_RECEIPT -> {
+                try {
+                    cipher.decrypt(SignalMessage(ciphertextBytes))
+                } catch (_: Exception) {
+                    cipher.decrypt(PreKeySignalMessage(ciphertextBytes))
+                }
             }
             else -> throw IllegalArgumentException("Unsupported envelope message type: ${envelope.type}")
         }

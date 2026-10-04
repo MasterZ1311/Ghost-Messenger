@@ -17,6 +17,9 @@ import org.ghostmessenger.ui.onboarding.OnboardingViewModel
 import org.ghostmessenger.ui.settings.SettingsScreen
 import org.ghostmessenger.ui.settings.SettingsViewModel
 
+import org.ghostmessenger.ui.verification.VerificationScreen
+import org.ghostmessenger.ui.verification.VerificationViewModel
+
 @Composable
 fun GhostNavHost(
     hasIdentity: Boolean,
@@ -64,6 +67,9 @@ fun GhostNavHost(
                 viewModel = viewModel,
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onNavigateToVerification = { userCode ->
+                    navController.navigate(Screen.Verification.createRoute(userCode))
                 }
             )
         }
@@ -79,6 +85,21 @@ fun GhostNavHost(
                     navController.navigate(Screen.Onboarding.route) {
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        composable(
+            route = Screen.Verification.route,
+            arguments = listOf(
+                navArgument("userCode") { type = NavType.StringType }
+            )
+        ) {
+            val viewModel = hiltViewModel<VerificationViewModel>()
+            VerificationScreen(
+                viewModel = viewModel,
+                onNavigateBack = {
+                    navController.popBackStack()
                 }
             )
         }

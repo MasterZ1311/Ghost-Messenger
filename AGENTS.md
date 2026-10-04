@@ -4,7 +4,7 @@ This document defines the standing operating rules and constraints for all AI ag
 
 ---
 
-## 🛡️ Core Standing Rules
+## Core Standing Rules
 
 ### 1. Evidence-Based Verification
 - **Rule**: Never claim a feature works unless you have actually run it or an automated test proves it.

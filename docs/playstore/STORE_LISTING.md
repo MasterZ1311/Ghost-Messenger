@@ -29,7 +29,7 @@ Every conversation is protected by the Double Ratchet Algorithm and Extended Tri
 All messages, encryption keys, and session records stored on your device are encrypted at rest using SQLCipher (256-bit AES encryption) with master keys backed by hardware-backed keystores.
 
 5. Cryptographic Safety Number Verification
-Verify the authenticity of your communication channel with visual and numeric 60-digit fingerprints to ensure protection against adversary-in-the-middle attacks.
+Verify the authenticity of your communication channel with visual and numeric 30-digit fingerprints to ensure protection against adversary-in-the-middle attacks.
 
 6. Zero Telemetry and Zero Logs
 Calypso does not collect device analytics, tracking identifiers, contact lists, or usage telemetry.
@@ -40,7 +40,7 @@ PERMISSIONS AND SYSTEM USAGE
 - Notifications: Used to alert you to incoming connection requests.
 
 TECHNICAL SPECIFICATIONS
-- Protocol: Signal Protocol (libsignal-protocol-dart)
+- Protocol: Signal Protocol (libsignal-android)
 - Transport: WebRTC (RFC 8831 DataChannels)
 - Database: SQLCipher AES-256
 - Identity Derivation: BIP39 / RFC 5869 HKDF-SHA-256
@@ -93,4 +93,4 @@ TECHNICAL SPECIFICATIONS
   2. Backup Screen: "12-Word BIP39 Passphrase Recovery"
   3. Home Hub: "Permanent UserCode and Active Sessions"
   4. Encrypted Chat: "Direct P2P DataChannel Communication"
-  5. Security Verification: "60-Digit Cryptographic Safety Numbers"
+  5. Security Verification: "30-Digit Cryptographic Safety Numbers"

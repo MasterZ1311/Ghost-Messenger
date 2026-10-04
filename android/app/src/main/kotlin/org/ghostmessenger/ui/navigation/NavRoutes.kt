@@ -7,4 +7,7 @@ sealed class Screen(val route: String) {
         fun createRoute(userCode: String) = "chat/$userCode"
     }
     data object Settings : Screen("settings")
+    data object Verification : Screen("verification/{userCode}") {
+        fun createRoute(userCode: String) = "verification/$userCode"
+    }
 }

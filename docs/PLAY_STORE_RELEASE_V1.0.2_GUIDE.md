@@ -1,10 +1,10 @@
-# 🚀 Google Play Store Release Guide — Calypso
+# Google Play Store Release Guide — Calypso
 
 This guide outlines the complete procedure for building, verifying, and publishing **Calypso** (`org.calypso.messenger`) to the **Google Play Console**.
 
 ---
 
-## 📌 Release Summary & Specifications
+## Release Summary & Specifications
 
 | Property | Value | Details |
 |---|---|---|
@@ -24,7 +24,7 @@ This guide outlines the complete procedure for building, verifying, and publishi
 
 ---
 
-## 🛠️ Step 1: Pre-Build Key & Configuration Check
+## Step 1: Pre-Build Key & Configuration Check
 
 Before running the build, ensure your signing credentials are in place:
 
@@ -46,7 +46,7 @@ Before running the build, ensure your signing credentials are in place:
 
 ---
 
-## 📦 Step 2: Compile the Signed Production Artifacts
+## Step 2: Compile the Signed Production Artifacts
 
 Open **PowerShell** in the `android/` directory:
 
@@ -76,7 +76,7 @@ cd "e:\Github\Ghost Messenger\android"
 
 ---
 
-## 📱 Step 3: Quick Smoke Test on a Real Device (Recommended)
+## Step 3: Quick Smoke Test on a Real Device (Recommended)
 
 Before submitting to Google Play, verify that the release build runs smoothly on a real device:
 
@@ -93,7 +93,7 @@ Before submitting to Google Play, verify that the release build runs smoothly on
 
 ---
 
-## 🌐 Step 4: Upload to Google Play Console (Step-by-Step)
+## Step 4: Upload to Google Play Console (Step-by-Step)
 
 Follow these exact steps in your browser:
 
@@ -168,7 +168,7 @@ Depending on your release setup:
 
 ---
 
-## ⏳ Step 5: What to Expect After Rolling Out
+## Step 5: What to Expect After Rolling Out
 
 - **Status**: Your release status will change to **In review**.
 - **Review Duration**:
@@ -178,7 +178,7 @@ Depending on your release setup:
 
 ---
 
-## 🔧 Troubleshooting Common Play Console Update Errors
+## Troubleshooting Common Play Console Update Errors
 
 ### 1. "Version code 2 has already been used"
 - **Cause**: The uploaded `.aab` has the same or lower `versionCode` as a previously uploaded release.
@@ -196,7 +196,7 @@ Depending on your release setup:
 
 ---
 
-## 📁 Repository Reference Documents Retained
+## Repository Reference Documents Retained
 
 The following live documents and store assets are preserved in `docs/playstore/` for ongoing compliance and store presence:
 

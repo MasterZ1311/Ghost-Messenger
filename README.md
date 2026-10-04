@@ -46,14 +46,15 @@ Calypso
 │           ├── onboarding/   # BIP39 seed generation & wallet recovery
 │           ├── home/         # Active peer list, QR codes, presence indicators
 │           ├── chat/         # End-to-end encrypted messaging view
-│           ├── settings/     # Key backup, cryptographic vault purge
+│           ├── verification/ # Safety number numeric fingerprint & contact verification
+│           ├── settings/     # Key backup, TURN relay setup, vault purge
 │           └── theme/        # Obsidian dark theme & design tokens
 │
 ├── server/                   # Ephemeral Node.js signaling & prekey broker
 │   ├── src/
 │   │   ├── routes/           # PreKey bundle upload/fetch REST API
 │   │   ├── sockets/          # Socket.IO WebRTC signaling relay (SDP/ICE)
-│   │   └── store/            # Ephemeral In-Memory PreKey store & PresenceManager
+│   │   └── store/            # In-Memory PreKey store, PresenceManager, OfflineQueueStore
 │   ├── scripts/              # Automated deployment verification
 │   └── test/                 # Server REST & Socket.IO test suite
 │
@@ -70,12 +71,12 @@ Calypso
 ```
   Client A                   Signaling Server                  Client B
      │                            │                               │
-     │---- join(userCode) ------▶ │                               │
-     │                            │ ◀---- join(userCode) --------- │
+     │---- register(userCode) ---▶ │                               │
+     │                            │ ◀---- register(userCode) ---- │
      │                            │                               │
-     │---- signal(offer) --------▶ │ ---- signal(offer) --------▶ │
+     │---- webrtc-offer ---------▶ │ ---- webrtc-offer ----------▶ │
      │                            │                               │
-     │ ◀--- signal(answer) ------- │ ◀--- signal(answer) -------- │
+     │ ◀--- webrtc-answer ------- │ ◀--- webrtc-answer ---------- │
      │                            │                               │
      │ ◀════════ E2EE WebRTC DataChannel (P2P) ═════════════════▶ │
      │                   (Server no longer participates)           │
@@ -89,13 +90,15 @@ Calypso
 |---|---|---|
 | Message Encryption | Signal Protocol (Double Ratchet) | Forward secrecy and post-compromise recovery per-message |
 | Key Agreement | Curve25519 (X3DH) | Asynchronous handshake for establishing shared secrets |
-| Transport | WebRTC DataChannel + DTLS | Encrypted peer-to-peer data transport |
+| Contact Verification | Safety Numbers (SHA-512) | 30-digit numeric fingerprints for out-of-band MITM detection |
+| Transport | WebRTC DataChannel + DTLS | Direct peer-to-peer data transport with automatic reconnection |
+| Control Signals | Encrypted ACKs & Read Receipts | All acknowledgments end-to-end encrypted via Double Ratchet |
 | Identity Keys | libsignal-android | Curve25519 keypairs |
 | Identity Backup | BIP39 Mnemonic (12 words) | Offline recovery of identity |
 | Local Storage | SQLCipher (net.zetetic:sqlcipher-android) | AES-256 encrypted Room database |
 | Key Storage | EncryptedSharedPreferences | OS-level Android Keystore secure storage |
-| Server Side | Minimal knowledge | Server relays SDP/ICE and prekey bundles only; never touches plaintext |
-| Anti-Spoofing | fromCode validation | Sockets may only emit as their joined userCode |
+| Server Side | Zero plaintext knowledge | Ephemeral relay buffers encrypted blobs only; never touches plaintext |
+| Relay Privacy | Zero hardcoded credentials | STUN-only by default; custom TURN credentials encrypted in preferences |
 
 ---
 
@@ -258,24 +261,35 @@ Server → Client
 
 ---
 
-## 📱 Google Play Release & Documentation
+## Documentation & Technical Reference
 
+Comprehensive documentation for developers, security researchers, and code reviewers is maintained in the `docs/` directory:
+
+### Architecture & Security Specifications
+- **System Architecture**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System topology, Android MVVM/Compose layers, server modules, and WebRTC DataChannel state machines.
+- **Cryptographic Protocol**: [docs/CRYPTOGRAPHY.md](docs/CRYPTOGRAPHY.md) — Deterministic BIP-39 derivation, Signal Double Ratchet, X3DH, Safety Numbers, encrypted control packets, and SQLCipher at-rest encryption.
+- **Signaling & Wire Protocol**: [docs/SIGNALING_AND_NETWORKING.md](docs/SIGNALING_AND_NETWORKING.md) — HTTP REST endpoints, Socket.IO wire events, HMAC challenge auth, WebRTC SDP/ICE negotiation, and offline queuing.
+- **Security & Threat Model**: [docs/SECURITY_AND_THREAT_MODEL.md](docs/SECURITY_AND_THREAT_MODEL.md) — Zero-knowledge server proofs, threat vector matrix, replay protection, and client hardening.
+- **Code Reviewer Guide**: [docs/CODE_REVIEW_GUIDE.md](docs/CODE_REVIEW_GUIDE.md) — File-by-file inspection guide, verification procedures, testing runbooks, and common review pitfalls.
+- **Build Audit Report**: [docs/AUDIT_BUILD.md](docs/AUDIT_BUILD.md) — Full build, unit test, and lint execution verification logs.
+- **Features Verification Matrix**: [docs/AUDIT_FEATURES.md](docs/AUDIT_FEATURES.md) — Line-by-line evidence mapping for all cryptographic and networking features.
+
+### Google Play & Compliance Documentation
 - **Release Runbook (v1.0.2)**: [Google Play Store Release & Update Guide](docs/PLAY_STORE_RELEASE_V1.0.2_GUIDE.md)
 - **Privacy Policy**: [Privacy Policy](docs/playstore/PRIVACY_POLICY.md)
 - **Terms of Service**: [Terms of Service](docs/playstore/TERMS_OF_SERVICE.md)
 - **Data Safety Declaration**: [Data Safety Details](docs/playstore/DATA_SAFETY_DECLARATION.md)
+- **Store Listing Copy**: [Store Listing](docs/playstore/STORE_LISTING.md)
 
 ---
 
 ## Roadmap
 
-- Push notifications for offline delivery (FCM/APNS)
-- Group chat support (multi-party Signal Protocol sessions)
-- Encrypted file transfer over DataChannel
-- Deterministic key derivation from mnemonic (BIP39 KDF improvements)
-- Join challenge-response for server-verifiable userCode ownership
-- Mobile builds for Android and iOS
-- Self-hosted deployment guide and packaging
+- Push notifications for wake-up delivery (FCM / unified push)
+- Group messaging support (sender keys / multi-party sessions)
+- Encrypted file and media transfer over WebRTC DataChannels
+- Cross-platform desktop and iOS clients
+- Self-hosted signaling bundle and one-click container deployments
 
 ---
 

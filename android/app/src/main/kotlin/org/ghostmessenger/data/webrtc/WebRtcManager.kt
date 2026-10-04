@@ -27,12 +27,15 @@ import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+import org.ghostmessenger.data.local.prefs.SecurePreferences
+
 /**
  * Manages WebRTC PeerConnections and ordered, reliable SCTP DataChannels for P2P messaging.
  */
 @Singleton
 class WebRtcManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val securePreferences: SecurePreferences
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -45,42 +48,51 @@ class WebRtcManager @Inject constructor(
         PeerConnectionFactory.builder().createPeerConnectionFactory()
     }
 
-    private val iceServers = listOf(
-        // Google Public STUN
-        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-        PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+    private fun getIceServers(): List<PeerConnection.IceServer> {
+        val servers = mutableListOf(
+            // Google Public STUN
+            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+            // Public STUN Relay
+            PeerConnection.IceServer.builder("stun:stun.relay.metered.ca:80").createIceServer()
+        )
 
-        // Metered Public STUN
-        PeerConnection.IceServer.builder("stun:stun.relay.metered.ca:80").createIceServer(),
-
-        // Metered TURN Relays (UDP & TCP Fallbacks)
-        PeerConnection.IceServer.builder("turn:global.relay.metered.ca:80")
-            .setUsername("d8b6c3ca05209ab02a917f8b")
-            .setPassword("1zz/bX4u3W5ILOXV")
-            .createIceServer(),
-
-        PeerConnection.IceServer.builder("turn:global.relay.metered.ca:80?transport=tcp")
-            .setUsername("d8b6c3ca05209ab02a917f8b")
-            .setPassword("1zz/bX4u3W5ILOXV")
-            .createIceServer(),
-
-        PeerConnection.IceServer.builder("turn:global.relay.metered.ca:443")
-            .setUsername("d8b6c3ca05209ab02a917f8b")
-            .setPassword("1zz/bX4u3W5ILOXV")
-            .createIceServer(),
-
-        PeerConnection.IceServer.builder("turns:global.relay.metered.ca:443?transport=tcp")
-            .setUsername("d8b6c3ca05209ab02a917f8b")
-            .setPassword("1zz/bX4u3W5ILOXV")
-            .createIceServer()
-    )
+        // Configured TURN Relays from SecurePreferences (zero hardcoded secrets in source)
+        val turnUser = securePreferences.getTurnUsername()
+        val turnPass = securePreferences.getTurnPassword()
+        if (turnUser.isNotBlank() && turnPass.isNotBlank()) {
+            val turnServerUrl = securePreferences.getTurnServerUrl()
+            servers.add(
+                PeerConnection.IceServer.builder(turnServerUrl)
+                    .setUsername(turnUser)
+                    .setPassword(turnPass)
+                    .createIceServer()
+            )
+            servers.add(
+                PeerConnection.IceServer.builder("$turnServerUrl?transport=tcp")
+                    .setUsername(turnUser)
+                    .setPassword(turnPass)
+                    .createIceServer()
+            )
+        }
+        return servers
+    }
 
     private val peerConnections = ConcurrentHashMap<String, PeerConnection>()
     private val dataChannels = ConcurrentHashMap<String, DataChannel>()
     private val dataChannelStates = ConcurrentHashMap<String, MutableStateFlow<DataChannel.State>>()
+    private val reconnectCallbacks = ConcurrentHashMap<String, () -> Unit>()
+    private val reconnectAttempts = ConcurrentHashMap<String, Int>()
 
     private val _incomingMessages = MutableSharedFlow<Pair<String, ByteArray>>(extraBufferCapacity = 128)
     val incomingMessages: SharedFlow<Pair<String, ByteArray>> = _incomingMessages.asSharedFlow()
+
+    /**
+     * Registers a reconnection callback for [remoteUserCode] triggered on connection failure.
+     */
+    fun setReconnectCallback(remoteUserCode: String, callback: () -> Unit) {
+        reconnectCallbacks[remoteUserCode] = callback
+    }
 
     /**
      * Retrieves or creates a reactive StateFlow for a peer's DataChannel state.
@@ -234,7 +246,7 @@ class WebRtcManager @Inject constructor(
         onIceCandidate: (IceCandidate) -> Unit
     ): PeerConnection {
         return peerConnections.getOrPut(remoteUserCode) {
-            val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
+            val rtcConfig = PeerConnection.RTCConfiguration(getIceServers()).apply {
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
                 continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
             }
@@ -253,6 +265,20 @@ class WebRtcManager @Inject constructor(
                         newState == PeerConnection.PeerConnectionState.CLOSED
                     ) {
                         dataChannelStates[remoteUserCode]?.value = DataChannel.State.CLOSED
+                        dataChannels.remove(remoteUserCode)?.close()
+                        peerConnections.remove(remoteUserCode)?.close()
+
+                        val attempts = reconnectAttempts.getOrDefault(remoteUserCode, 0)
+                        if (attempts < 3) {
+                            reconnectAttempts[remoteUserCode] = attempts + 1
+                            val delayMs = 2000L * (1 shl attempts)
+                            scope.launch {
+                                kotlinx.coroutines.delay(delayMs)
+                                reconnectCallbacks[remoteUserCode]?.invoke()
+                            }
+                        }
+                    } else if (newState == PeerConnection.PeerConnectionState.CONNECTED) {
+                        reconnectAttempts.remove(remoteUserCode)
                     }
                 }
             }
@@ -285,7 +311,11 @@ class WebRtcManager @Inject constructor(
             override fun onBufferedAmountChange(previousAmount: Long) {}
 
             override fun onStateChange() {
-                stateFlow.value = channel.state()
+                val state = channel.state()
+                stateFlow.value = state
+                if (state == DataChannel.State.OPEN) {
+                    reconnectAttempts.remove(remoteUserCode)
+                }
             }
 
             override fun onMessage(buffer: DataChannel.Buffer) {
@@ -302,6 +332,8 @@ class WebRtcManager @Inject constructor(
      * Closes the P2P connection to [remoteUserCode].
      */
     fun closePeerConnection(remoteUserCode: String) {
+        reconnectCallbacks.remove(remoteUserCode)
+        reconnectAttempts.remove(remoteUserCode)
         dataChannels.remove(remoteUserCode)?.close()
         peerConnections.remove(remoteUserCode)?.close()
         dataChannelStates[remoteUserCode]?.value = DataChannel.State.CLOSED
@@ -311,6 +343,8 @@ class WebRtcManager @Inject constructor(
      * Closes all active connections.
      */
     fun closeAll() {
+        reconnectCallbacks.clear()
+        reconnectAttempts.clear()
         for ((code, channel) in dataChannels) {
             channel.close()
         }

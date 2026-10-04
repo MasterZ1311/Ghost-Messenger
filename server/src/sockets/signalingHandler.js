@@ -20,6 +20,7 @@
  */
 
 import { logger, hashIp } from '../middleware/logger.js';
+import { OfflineQueueStore } from '../store/OfflineQueueStore.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -79,7 +80,7 @@ function errCb(callback, message) {
 // Main export
 // ---------------------------------------------------------------------------
 
-export function setupSignalingHandlers(io, presenceManager, preKeyStore) {
+export function setupSignalingHandlers(io, presenceManager, preKeyStore, offlineQueueStore = new OfflineQueueStore()) {
   io.on('connection', (socket) => {
     const ip     = socket.handshake.address;
     const ipHash = hashIp(ip);
@@ -139,6 +140,14 @@ export function setupSignalingHandlers(io, presenceManager, preKeyStore) {
         callback({ success: true, userCode: normalized });
       }
       socket.emit('registered', { success: true, userCode: normalized });
+
+      // Deliver any buffered offline envelopes
+      if (offlineQueueStore.hasQueued(normalized)) {
+        const pending = offlineQueueStore.dequeueAll(normalized);
+        for (const item of pending) {
+          socket.emit('encrypted-envelope', item);
+        }
+      }
     });
 
     // -----------------------------------------------------------------------
@@ -255,10 +264,12 @@ export function setupSignalingHandlers(io, presenceManager, preKeyStore) {
       const isDelivered = presenceManager.isOnline(targetUserCode);
       if (isDelivered) {
         io.to(targetUserCode).emit('encrypted-envelope', { fromUserCode, envelope });
+      } else {
+        offlineQueueStore.enqueue(targetUserCode, { fromUserCode, envelope });
       }
 
       if (typeof callback === 'function') {
-        callback({ success: isDelivered, delivered: isDelivered });
+        callback({ success: true, delivered: isDelivered, queued: !isDelivered });
       }
     });
 

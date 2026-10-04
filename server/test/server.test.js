@@ -650,4 +650,43 @@ describe('Full Server REST & Socket.IO Integration Tests', () => {
       });
     });
   });
+
+  it('Socket.IO: offline encrypted-envelope is queued and delivered on register', (done) => {
+    const senderCode = 'OFFL-SND1';
+    const targetCode = 'OFFL-TRG1';
+    preKeyStore.upload(senderCode, makeBundle(IDENTITY_KEY_B64));
+    preKeyStore.upload(targetCode, makeBundle(IDENTITY_KEY_B64));
+
+    const senderClient = Client(serverUrl, { reconnection: false });
+    senderClient.on('connect', () => {
+      senderClient.emit('register', { userCode: senderCode }, (regRes) => {
+        assert.equal(regRes.success, true);
+
+        // Target is currently offline. Send envelope.
+        senderClient.emit('encrypted-envelope', {
+          targetUserCode: targetCode,
+          envelope: 'ciphertext-for-offline-peer'
+        }, (ack) => {
+          assert.equal(ack.success, true);
+          assert.equal(ack.delivered, false);
+          assert.equal(ack.queued, true);
+
+          // Now target connects and registers
+          const targetClient = Client(serverUrl, { reconnection: false });
+          targetClient.on('encrypted-envelope', (data) => {
+            assert.equal(data.fromUserCode, senderCode);
+            assert.equal(data.envelope, 'ciphertext-for-offline-peer');
+
+            senderClient.disconnect();
+            targetClient.disconnect();
+            done();
+          });
+
+          targetClient.on('connect', () => {
+            targetClient.emit('register', { userCode: targetCode });
+          });
+        });
+      });
+    });
+  });
 });

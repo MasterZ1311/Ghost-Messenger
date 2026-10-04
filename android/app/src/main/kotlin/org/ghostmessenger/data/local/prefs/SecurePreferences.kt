@@ -107,6 +107,27 @@ class SecurePreferences @Inject constructor(
         prefs.edit().putString(KEY_SIGNALING_URL, url.trim()).apply()
     }
 
+    fun getTurnUsername(): String =
+        prefs.getString(KEY_TURN_USERNAME, "") ?: ""
+
+    fun setTurnUsername(username: String) {
+        prefs.edit().putString(KEY_TURN_USERNAME, username.trim()).apply()
+    }
+
+    fun getTurnPassword(): String =
+        prefs.getString(KEY_TURN_PASSWORD, "") ?: ""
+
+    fun setTurnPassword(password: String) {
+        prefs.edit().putString(KEY_TURN_PASSWORD, password.trim()).apply()
+    }
+
+    fun getTurnServerUrl(): String =
+        prefs.getString(KEY_TURN_SERVER_URL, DEFAULT_TURN_SERVER_URL) ?: DEFAULT_TURN_SERVER_URL
+
+    fun setTurnServerUrl(url: String) {
+        prefs.edit().putString(KEY_TURN_SERVER_URL, url.trim()).apply()
+    }
+
     private fun bytesToHex(bytes: ByteArray): String =
         bytes.joinToString("") { "%02x".format(it) }
 
@@ -128,7 +149,11 @@ class SecurePreferences @Inject constructor(
         private const val KEY_USER_CODE = "user_code"
         private const val KEY_REGISTRATION_ID = "registration_id"
         private const val KEY_SIGNALING_URL = "signaling_url"
+        private const val KEY_TURN_USERNAME = "turn_username"
+        private const val KEY_TURN_PASSWORD = "turn_password"
+        private const val KEY_TURN_SERVER_URL = "turn_server_url"
 
         const val DEFAULT_SIGNALING_URL = "https://ghost-messenger-fp8w.onrender.com"
+        const val DEFAULT_TURN_SERVER_URL = "turn:global.relay.metered.ca:80"
     }
 }

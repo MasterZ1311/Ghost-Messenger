@@ -15,6 +15,10 @@ import javax.inject.Inject
 data class SettingsUiState(
     val signalingUrlInput: String = "",
     val isUrlSaved: Boolean = false,
+    val turnUsernameInput: String = "",
+    val turnPasswordInput: String = "",
+    val turnServerUrlInput: String = "",
+    val isTurnSaved: Boolean = false,
     val showPurgeDialog: Boolean = false,
     val isPurging: Boolean = false
 )
@@ -28,7 +32,12 @@ class SettingsViewModel @Inject constructor(
     val currentIdentity: StateFlow<Identity?> = messageRepository.currentIdentity
 
     private val _uiState = MutableStateFlow(
-        SettingsUiState(signalingUrlInput = securePreferences.getSignalingUrl())
+        SettingsUiState(
+            signalingUrlInput = securePreferences.getSignalingUrl(),
+            turnUsernameInput = securePreferences.getTurnUsername(),
+            turnPasswordInput = securePreferences.getTurnPassword(),
+            turnServerUrlInput = securePreferences.getTurnServerUrl()
+        )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
@@ -42,6 +51,27 @@ class SettingsViewModel @Inject constructor(
             securePreferences.setSignalingUrl(url)
             _uiState.value = _uiState.value.copy(isUrlSaved = true)
         }
+    }
+
+    fun updateTurnUsernameInput(username: String) {
+        _uiState.value = _uiState.value.copy(turnUsernameInput = username, isTurnSaved = false)
+    }
+
+    fun updateTurnPasswordInput(password: String) {
+        _uiState.value = _uiState.value.copy(turnPasswordInput = password, isTurnSaved = false)
+    }
+
+    fun updateTurnServerUrlInput(url: String) {
+        _uiState.value = _uiState.value.copy(turnServerUrlInput = url, isTurnSaved = false)
+    }
+
+    fun saveTurnConfiguration() {
+        securePreferences.setTurnUsername(_uiState.value.turnUsernameInput.trim())
+        securePreferences.setTurnPassword(_uiState.value.turnPasswordInput.trim())
+        if (_uiState.value.turnServerUrlInput.isNotBlank()) {
+            securePreferences.setTurnServerUrl(_uiState.value.turnServerUrlInput.trim())
+        }
+        _uiState.value = _uiState.value.copy(isTurnSaved = true)
     }
 
     fun openPurgeDialog() {

@@ -53,13 +53,19 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.TextButton
+
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToVerification: (String) -> Unit = {}
 ) {
     val messages by viewModel.messages.collectAsState()
     val dataChannelState by viewModel.dataChannelState.collectAsState()
+    val conversation by viewModel.conversation.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
 
     val listState = rememberLazyListState()
@@ -77,7 +83,9 @@ fun ChatScreen(
             ChatTopBar(
                 userCode = viewModel.recipientUserCode,
                 dataChannelState = dataChannelState,
-                onBack = onNavigateBack
+                isVerified = conversation?.isVerified == true,
+                onBack = onNavigateBack,
+                onVerificationClick = { onNavigateToVerification(viewModel.recipientUserCode) }
             )
         },
         bottomBar = {
@@ -95,6 +103,49 @@ fun ChatScreen(
                 .padding(paddingValues)
                 .imePadding()
         ) {
+            // Security Warning Banner (TOFU Key Changed Alert)
+            if (uiState.securityWarning != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(GhostColors.WarningRed.copy(alpha = 0.15f))
+                        .border(1.dp, GhostColors.WarningRed)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = GhostColors.WarningRed,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = uiState.securityWarning ?: "",
+                                color = GhostColors.WarningRed,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 16.sp
+                            )
+                        }
+                        TextButton(onClick = { onNavigateToVerification(viewModel.recipientUserCode) }) {
+                            Text(
+                                "VERIFY",
+                                color = GhostColors.NeonCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+            }
+
             // Security Protocol Banner
             SecurityBanner()
 
@@ -129,7 +180,9 @@ fun ChatScreen(
 private fun ChatTopBar(
     userCode: String,
     dataChannelState: DataChannel.State,
-    onBack: () -> Unit
+    isVerified: Boolean,
+    onBack: () -> Unit,
+    onVerificationClick: () -> Unit
 ) {
     Surface(
         color = GhostColors.SurfaceSlate,
@@ -181,6 +234,15 @@ private fun ChatTopBar(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
+            }
+
+            IconButton(onClick = onVerificationClick) {
+                Icon(
+                    Icons.Default.Shield,
+                    contentDescription = "Verify Safety Number",
+                    tint = if (isVerified) GhostColors.NeonCyan else GhostColors.TextMuted,
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
     }
@@ -255,7 +317,11 @@ private fun MessageBubble(message: MessageEntity) {
                         }
                         Text(
                             text = statusSymbol,
-                            color = if (message.status == MessageEntity.STATUS_DELIVERED) GhostColors.NeonCyan else GhostColors.TextMuted,
+                            color = when (message.status) {
+                                MessageEntity.STATUS_READ -> GhostColors.GhostGreen
+                                MessageEntity.STATUS_DELIVERED -> GhostColors.NeonCyan
+                                else -> GhostColors.TextMuted
+                            },
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace

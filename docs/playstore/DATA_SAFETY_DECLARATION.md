@@ -45,7 +45,7 @@ This document provides exact responses for completing the mandatory **Data Safet
 
 ### Cryptographic Implementation
 - **In-Transit Encryption**: All signaling connections operate over secure WebSockets (WSS/TLS). Peer messaging transport utilizes WebSockets/WebRTC DataChannels with DTLS-SRTP and Signal Protocol Double Ratchet payload encryption.
-- **At-Rest Encryption**: All locally persisted state (database entries, pre-keys, session records) is secured using SQLCipher (256-bit AES encryption) with keys stored in the Android Keystore (`flutter_secure_storage`).
+- **At-Rest Encryption**: All locally persisted state (database entries, pre-keys, session records) is secured using SQLCipher (256-bit AES encryption) with master keys backed by EncryptedSharedPreferences backed by the Android Keystore.
 
 ### Account Deletion Mechanism
 - Because Calypso does not maintain user accounts or cloud storage, selecting the in-app reset option immediately destroys the local cryptographic identity and all encrypted message tables, leaving zero residual data.

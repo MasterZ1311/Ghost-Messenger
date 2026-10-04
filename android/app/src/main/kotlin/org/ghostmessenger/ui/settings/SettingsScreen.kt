@@ -252,6 +252,83 @@ fun SettingsScreen(
                 )
             }
 
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // TURN Relay Configuration
+            Text(
+                text = "P2P TURN RELAY CONFIGURATION",
+                color = GhostColors.GhostGreen,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Optional credentials for symmetric NAT firewall traversal (STUN operates by default):",
+                color = GhostColors.TextMuted,
+                fontSize = 11.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = uiState.turnUsernameInput,
+                onValueChange = { viewModel.updateTurnUsernameInput(it) },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("TURN Username", color = GhostColors.TextMuted, fontSize = 12.sp) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = GhostColors.SurfaceSlate,
+                    unfocusedContainerColor = GhostColors.SurfaceSlate,
+                    focusedBorderColor = GhostColors.GhostGreen,
+                    unfocusedBorderColor = GhostColors.BorderGlow,
+                    focusedTextColor = GhostColors.TextPrimary,
+                    unfocusedTextColor = GhostColors.TextPrimary
+                ),
+                shape = RoundedCornerShape(8.dp),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = uiState.turnPasswordInput,
+                onValueChange = { viewModel.updateTurnPasswordInput(it) },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("TURN Password", color = GhostColors.TextMuted, fontSize = 12.sp) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = GhostColors.SurfaceSlate,
+                    unfocusedContainerColor = GhostColors.SurfaceSlate,
+                    focusedBorderColor = GhostColors.GhostGreen,
+                    unfocusedBorderColor = GhostColors.BorderGlow,
+                    focusedTextColor = GhostColors.TextPrimary,
+                    unfocusedTextColor = GhostColors.TextPrimary
+                ),
+                shape = RoundedCornerShape(8.dp),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(
+                onClick = {
+                    viewModel.saveTurnConfiguration()
+                    Toast.makeText(context, "TURN Relay Config Saved", Toast.LENGTH_SHORT).show()
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = GhostColors.SurfaceSlate,
+                    contentColor = GhostColors.GhostGreen
+                ),
+                border = BorderStroke(1.dp, GhostColors.GhostGreen),
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Text(
+                    text = if (uiState.isTurnSaved) "SAVED ✓" else "SAVE TURN CONFIG",
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
             Spacer(modifier = Modifier.height(36.dp))
 
             // Danger Zone
