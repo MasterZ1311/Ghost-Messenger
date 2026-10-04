@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import org.ghostmessenger.data.local.dao.ConversationDao
 import org.ghostmessenger.data.local.dao.MessageDao
@@ -54,6 +56,31 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         const val DATABASE_NAME = "ghost_messenger.db"
 
+        init {
+            try {
+                System.loadLibrary("sqlcipher")
+            } catch (_: Throwable) {
+                // Already loaded by GhostMessengerApp or testing environment
+            }
+        }
+
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `signal_sender_keys` (
+                        `senderName` TEXT NOT NULL,
+                        `deviceId` INTEGER NOT NULL,
+                        `distributionId` TEXT NOT NULL,
+                        `recordBytes` BLOB NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`senderName`, `deviceId`, `distributionId`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         /**
          * Creates an encrypted instance of [AppDatabase] using SQLCipher.
          */
@@ -61,6 +88,7 @@ abstract class AppDatabase : RoomDatabase() {
             val factory = SupportOpenHelperFactory(passphrase)
             return Room.databaseBuilder(context, AppDatabase::class.java, DATABASE_NAME)
                 .openHelperFactory(factory)
+                .addMigrations(MIGRATION_1_2)
                 // Security (F6): Never use fallbackToDestructiveMigration() in production.
                 // A destructive migration silently wipes all Signal sessions, trust anchors,
                 // and message history. All future schema changes MUST provide an explicit
@@ -74,6 +102,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun buildInMemory(context: Context): AppDatabase {
             return Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
                 .allowMainThreadQueries()
+                .addMigrations(MIGRATION_1_2)
                 .build()
         }
     }

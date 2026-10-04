@@ -23,18 +23,39 @@ import javax.inject.Singleton
 class SecurePreferences @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+    private fun createEncryptedPrefs(): SharedPreferences {
+        return try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_FILE_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            try {
+                context.deleteSharedPreferences(PREFS_FILE_NAME)
+                val masterKey = MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                EncryptedSharedPreferences.create(
+                    context,
+                    PREFS_FILE_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (fallbackEx: Exception) {
+                context.getSharedPreferences(PREFS_FILE_NAME, Context.MODE_PRIVATE)
+            }
+        }
+    }
 
     val prefs: SharedPreferences by lazy {
-        EncryptedSharedPreferences.create(
-            context,
-            PREFS_FILE_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+        createEncryptedPrefs()
     }
 
     /**
@@ -97,35 +118,52 @@ class SecurePreferences @Inject constructor(
     }
 
     /**
-     * Gets the configured signaling server URL. Defaults to the local development emulator URL.
+     * Gets the configured signaling server URL. Defaults to the production server URL.
      */
     fun getSignalingUrl(): String {
-        return prefs.getString(KEY_SIGNALING_URL, DEFAULT_SIGNALING_URL) ?: DEFAULT_SIGNALING_URL
+        val saved = prefs.getString(KEY_SIGNALING_URL, null)
+        return if (saved.isNullOrBlank() || saved.contains("ghost-messenger-fp8w.onrender.com")) {
+            DEFAULT_SIGNALING_URL
+        } else {
+            saved
+        }
     }
 
     fun setSignalingUrl(url: String) {
         prefs.edit().putString(KEY_SIGNALING_URL, url.trim()).apply()
     }
 
-    fun getTurnUsername(): String =
-        prefs.getString(KEY_TURN_USERNAME, "") ?: ""
+    fun getTurnUsername(): String {
+        val saved = prefs.getString(KEY_TURN_USERNAME, null)
+        return if (saved.isNullOrBlank()) DEFAULT_TURN_USERNAME else saved
+    }
 
     fun setTurnUsername(username: String) {
         prefs.edit().putString(KEY_TURN_USERNAME, username.trim()).apply()
     }
 
-    fun getTurnPassword(): String =
-        prefs.getString(KEY_TURN_PASSWORD, "") ?: ""
+    fun getTurnPassword(): String {
+        val saved = prefs.getString(KEY_TURN_PASSWORD, null)
+        return if (saved.isNullOrBlank()) DEFAULT_TURN_PASSWORD else saved
+    }
 
     fun setTurnPassword(password: String) {
         prefs.edit().putString(KEY_TURN_PASSWORD, password.trim()).apply()
     }
 
-    fun getTurnServerUrl(): String =
-        prefs.getString(KEY_TURN_SERVER_URL, DEFAULT_TURN_SERVER_URL) ?: DEFAULT_TURN_SERVER_URL
+    fun getTurnServerUrl(): String {
+        val saved = prefs.getString(KEY_TURN_SERVER_URL, null)
+        return if (saved.isNullOrBlank()) DEFAULT_TURN_SERVER_URL else saved
+    }
 
     fun setTurnServerUrl(url: String) {
         prefs.edit().putString(KEY_TURN_SERVER_URL, url.trim()).apply()
+    }
+
+    fun getFcmToken(): String? = prefs.getString(KEY_FCM_TOKEN, null)
+
+    fun setFcmToken(token: String) {
+        prefs.edit().putString(KEY_FCM_TOKEN, token.trim()).apply()
     }
 
     private fun bytesToHex(bytes: ByteArray): String =
@@ -152,8 +190,11 @@ class SecurePreferences @Inject constructor(
         private const val KEY_TURN_USERNAME = "turn_username"
         private const val KEY_TURN_PASSWORD = "turn_password"
         private const val KEY_TURN_SERVER_URL = "turn_server_url"
+        private const val KEY_FCM_TOKEN = "fcm_token"
 
-        const val DEFAULT_SIGNALING_URL = "https://ghost-messenger-fp8w.onrender.com"
+        const val DEFAULT_SIGNALING_URL = "https://ghost-messenger-iptc.onrender.com"
         const val DEFAULT_TURN_SERVER_URL = "turn:global.relay.metered.ca:80"
+        const val DEFAULT_TURN_USERNAME = "d8b6c3ca05209ab02a917f8b"
+        const val DEFAULT_TURN_PASSWORD = "1zz/bX4u3W5ILOXV"
     }
 }

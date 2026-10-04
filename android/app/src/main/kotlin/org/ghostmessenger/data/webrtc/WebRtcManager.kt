@@ -57,7 +57,7 @@ class WebRtcManager @Inject constructor(
             PeerConnection.IceServer.builder("stun:stun.relay.metered.ca:80").createIceServer()
         )
 
-        // Configured TURN Relays from SecurePreferences (zero hardcoded secrets in source)
+        // Configured TURN Relays from SecurePreferences
         val turnUser = securePreferences.getTurnUsername()
         val turnPass = securePreferences.getTurnPassword()
         if (turnUser.isNotBlank() && turnPass.isNotBlank()) {
@@ -70,6 +70,18 @@ class WebRtcManager @Inject constructor(
             )
             servers.add(
                 PeerConnection.IceServer.builder("$turnServerUrl?transport=tcp")
+                    .setUsername(turnUser)
+                    .setPassword(turnPass)
+                    .createIceServer()
+            )
+            servers.add(
+                PeerConnection.IceServer.builder("turn:global.relay.metered.ca:443")
+                    .setUsername(turnUser)
+                    .setPassword(turnPass)
+                    .createIceServer()
+            )
+            servers.add(
+                PeerConnection.IceServer.builder("turns:global.relay.metered.ca:443?transport=tcp")
                     .setUsername(turnUser)
                     .setPassword(turnPass)
                     .createIceServer()

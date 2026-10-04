@@ -259,7 +259,7 @@ private fun SecurityBanner() {
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = "🔒 E2E Encrypted (Signal Protocol // Curve25519 Double Ratchet)",
+            text = "[E2E ENCRYPTED] Signal Protocol // Curve25519 Double Ratchet",
             color = GhostColors.TextMuted,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace

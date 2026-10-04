@@ -28,7 +28,7 @@ const colors = {
 };
 
 if (cleanUrl.includes('your-domain.com') || cleanUrl.includes('yourdomain.com') || cleanUrl.includes('example.com')) {
-  console.log(`\n${colors.yellow}${colors.bold}⚠️  NOTE: "${cleanUrl}" is a placeholder URL from the guide!${colors.reset}`);
+  console.log(`\n${colors.yellow}${colors.bold}[NOTE] "${cleanUrl}" is a placeholder URL from the guide!${colors.reset}`);
   console.log(`${colors.yellow}Please replace it with your actual deployed URL:${colors.reset}`);
   console.log(`  • Railway: ${colors.cyan}node scripts/verify-deployment.js https://calypso-production-xxxx.up.railway.app${colors.reset}`);
   console.log(`  • Render:  ${colors.cyan}node scripts/verify-deployment.js https://calypso-messenger.onrender.com${colors.reset}`);
@@ -37,7 +37,7 @@ if (cleanUrl.includes('your-domain.com') || cleanUrl.includes('yourdomain.com') 
 }
 
 console.log(`\n${colors.bold}${colors.cyan}═════════════════════════════════════════════════════════════════${colors.reset}`);
-console.log(`${colors.bold} 🛡️ CALYPSO — PRODUCTION DEPLOYMENT VERIFICATION${colors.reset}`);
+console.log(`${colors.bold} CALYPSO — PRODUCTION DEPLOYMENT VERIFICATION${colors.reset}`);
 console.log(`${colors.cyan} Target Endpoint: ${colors.bold}${cleanUrl}${colors.reset}`);
 console.log(`${colors.bold}${colors.cyan}═════════════════════════════════════════════════════════════════${colors.reset}\n`);
 
@@ -140,11 +140,11 @@ async function runTests() {
   // Summary
   console.log(`\n${colors.bold}═════════════════════════════════════════════════════════════════${colors.reset}`);
   if (passedTests === totalTests) {
-    console.log(`${colors.green}${colors.bold}🎉 ALL ${totalTests} PRODUCTION TESTS PASSED!${colors.reset}`);
+    console.log(`${colors.green}${colors.bold}ALL ${totalTests} PRODUCTION TESTS PASSED!${colors.reset}`);
     console.log(`${colors.green}Your signaling server at ${cleanUrl} is fully operational and ready for production.${colors.reset}\n`);
     process.exit(0);
   } else {
-    console.log(`${colors.yellow}${colors.bold}⚠️  ${passedTests}/${totalTests} TESTS PASSED.${colors.reset}`);
+    console.log(`${colors.yellow}${colors.bold}[WARNING] ${passedTests}/${totalTests} TESTS PASSED.${colors.reset}`);
     console.log(`${colors.yellow}Please check your server logs, domain DNS, and firewall settings.${colors.reset}\n`);
     process.exit(1);
   }
