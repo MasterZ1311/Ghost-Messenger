@@ -5,7 +5,16 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class PreKeyUploadRequest(
     val userCode: String,
-    val bundle: PreKeyBundleDto
+    val bundle: PreKeyBundleDto,
+    val signature: String? = null
+)
+
+@Serializable
+data class ChallengeResponse(
+    val success: Boolean,
+    val userCode: String? = null,
+    val nonce: String? = null,
+    val error: String? = null
 )
 
 @Serializable

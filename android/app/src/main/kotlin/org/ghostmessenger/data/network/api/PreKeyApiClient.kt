@@ -8,11 +8,16 @@ import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import org.ghostmessenger.data.network.model.ChallengeResponse
 import org.ghostmessenger.data.network.model.HealthStatusDto
 import org.ghostmessenger.data.network.model.PreKeyBundleDto
 import org.ghostmessenger.data.network.model.PreKeyFetchBundleDto
 import org.ghostmessenger.data.network.model.PreKeyResponse
 import org.ghostmessenger.data.network.model.PreKeyUploadRequest
+import java.security.MessageDigest
+import java.util.Base64
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,6 +30,50 @@ class PreKeyApiClient @Inject constructor(
 ) {
 
     /**
+     * Issues a one-time challenge nonce the client must sign to prove ownership of the identity key.
+     */
+    suspend fun fetchChallenge(
+        baseUrl: String,
+        userCode: String
+    ): Result<String> {
+        return try {
+            val url = cleanUrl(baseUrl) + "/api/prekeys/challenge/$userCode"
+            val response = httpClient.get(url)
+            if (response.status == HttpStatusCode.OK) {
+                val body = response.body<ChallengeResponse>()
+                if (body.success && !body.nonce.isNullOrBlank()) {
+                    Result.success(body.nonce)
+                } else {
+                    Result.failure(Exception(body.error ?: "Challenge response missing nonce"))
+                }
+            } else {
+                val errorBody = runCatching { response.body<ChallengeResponse>() }.getOrNull()
+                val errorMsg = errorBody?.error ?: "Challenge request returned status: ${response.status.value}"
+                Result.failure(Exception(errorMsg))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    companion object {
+        /**
+         * Computes the HMAC-SHA256 ownership proof required for PreKey bundle uploads:
+         *   signature = HMAC-SHA256(key = SHA256(identityKeyBytes), data = nonce)
+         */
+        fun computeChallengeSignature(identityKeyBase64: String, nonce: String): String {
+            val identityKeyBytes = Base64.getDecoder().decode(identityKeyBase64)
+            val sha256 = MessageDigest.getInstance("SHA-256")
+            val hmacKey = sha256.digest(identityKeyBytes)
+            val mac = Mac.getInstance("HmacSHA256")
+            val keySpec = SecretKeySpec(hmacKey, "HmacSHA256")
+            mac.init(keySpec)
+            val signatureBytes = mac.doFinal(nonce.toByteArray(Charsets.UTF_8))
+            return signatureBytes.joinToString("") { "%02x".format(it) }
+        }
+    }
+
+    /**
      * Uploads the local user's PreKey bundle to the ephemeral signaling server.
      */
     suspend fun uploadPreKeyBundle(
@@ -33,10 +82,15 @@ class PreKeyApiClient @Inject constructor(
         bundle: PreKeyBundleDto
     ): Result<Boolean> {
         return try {
+            val challengeResult = fetchChallenge(baseUrl, userCode)
+            val signature = challengeResult.getOrNull()?.let { nonce ->
+                runCatching { computeChallengeSignature(bundle.identityKey, nonce) }.getOrNull()
+            }
+
             val url = cleanUrl(baseUrl) + "/api/prekeys/upload"
             val response = httpClient.post(url) {
                 contentType(ContentType.Application.Json)
-                setBody(PreKeyUploadRequest(userCode = userCode, bundle = bundle))
+                setBody(PreKeyUploadRequest(userCode = userCode, bundle = bundle, signature = signature))
             }
 
             if (response.status == HttpStatusCode.OK) {
@@ -47,7 +101,9 @@ class PreKeyApiClient @Inject constructor(
                     Result.failure(Exception(body.error ?: "Upload failed"))
                 }
             } else {
-                Result.failure(Exception("Server returned status: ${response.status.value}"))
+                val errorBody = runCatching { response.body<PreKeyResponse>() }.getOrNull()
+                val errorMsg = errorBody?.error ?: "Server returned status: ${response.status.value}"
+                Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
             Result.failure(e)

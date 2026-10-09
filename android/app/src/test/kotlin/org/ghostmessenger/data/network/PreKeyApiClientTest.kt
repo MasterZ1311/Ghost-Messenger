@@ -85,4 +85,38 @@ class PreKeyApiClientTest {
         assertEquals(42, bundle.preKey?.keyId)
         assertEquals(9, bundle.remainingPreKeys)
     }
+
+    @Test
+    fun testPreKeyUploadRequestWithSignatureSerialization() {
+        val request = PreKeyUploadRequest(
+            userCode = "5JKL-2P4X",
+            bundle = PreKeyBundleDto(
+                identityKey = "BASE64_IDENTITY_KEY",
+                registrationId = 1337,
+                signedPreKey = SignedPreKeyDto(
+                    keyId = 1,
+                    publicKey = "BASE64_SIGNED_KEY",
+                    signature = "BASE64_SIGNATURE"
+                ),
+                preKeys = emptyList()
+            ),
+            signature = "7e58a2d9c6d162069e0ddbd5bfbdf8f0416c2c9582e6416813c8551d2b522568"
+        )
+
+        val serialized = json.encodeToString(request)
+        assertTrue(serialized.contains("7e58a2d9c6d162069e0ddbd5bfbdf8f0416c2c9582e6416813c8551d2b522568"))
+
+        val deserialized = json.decodeFromString<PreKeyUploadRequest>(serialized)
+        assertEquals("7e58a2d9c6d162069e0ddbd5bfbdf8f0416c2c9582e6416813c8551d2b522568", deserialized.signature)
+    }
+
+    @Test
+    fun testComputeChallengeSignature() {
+        val identityKeyB64 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU="
+        val nonce = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        val expected = "7e58a2d9c6d162069e0ddbd5bfbdf8f0416c2c9582e6416813c8551d2b522568"
+
+        val signature = org.ghostmessenger.data.network.api.PreKeyApiClient.computeChallengeSignature(identityKeyB64, nonce)
+        assertEquals(expected, signature)
+    }
 }
