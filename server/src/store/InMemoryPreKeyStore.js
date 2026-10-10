@@ -182,6 +182,37 @@ export class InMemoryPreKeyStore {
   }
 
   /**
+   * Updates only the signed prekey for an existing bundle.
+   * Keeps existing identityKey and preKeys unchanged.
+   * @param {string} userCode
+   * @param {object} signedPreKey - { keyId, publicKey, signature }
+   * @returns {{ userCode: string, signedPreKeyId: number }}
+   */
+  updateSignedPreKey(userCode, signedPreKey) {
+    const normalized = this.normalizeUserCode(userCode);
+    if (!normalized) {
+      throw Object.assign(new Error('Invalid userCode format'), { code: 'INVALID_USERCODE' });
+    }
+    if (!this.bundles.has(normalized)) {
+      throw Object.assign(new Error('Bundle not found'), { code: 'BUNDLE_NOT_FOUND' });
+    }
+    if (!signedPreKey || typeof signedPreKey !== 'object') {
+      throw Object.assign(new Error('signedPreKey is required'), { code: 'INVALID_SIGNED_PREKEY' });
+    }
+    if (!signedPreKey.keyId || !signedPreKey.publicKey || !signedPreKey.signature) {
+      throw Object.assign(new Error('signedPreKey missing required fields'), { code: 'INVALID_SIGNED_PREKEY' });
+    }
+    const record = this.bundles.get(normalized);
+    record.signedPreKey = {
+      keyId: signedPreKey.keyId,
+      publicKey: signedPreKey.publicKey,
+      signature: signedPreKey.signature
+    };
+    record.updatedAt = Date.now();
+    return { userCode: normalized, signedPreKeyId: signedPreKey.keyId };
+  }
+
+  /**
    * Returns the locked identity key for a userCode, or null if none stored.
    * @param {string} userCode
    * @returns {string|null}

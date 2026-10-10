@@ -12,8 +12,9 @@ export const challengeStore = new ChallengeStore();
  *
  * @param {import('../store/InMemoryPreKeyStore.js').InMemoryPreKeyStore} preKeyStore
  * @param {import('../store/PresenceManager.js').PresenceManager} presenceManager
+ * @param {import('../store/ChallengeStore.js').ChallengeStore} [challengeStoreInstance]
  */
-export function createPreKeyRouter(preKeyStore, presenceManager) {
+export function createPreKeyRouter(preKeyStore, presenceManager, challengeStoreInstance = challengeStore) {
   const router = Router();
 
   // ---------------------------------------------------------------------------
@@ -47,7 +48,7 @@ export function createPreKeyRouter(preKeyStore, presenceManager) {
       return res.status(400).json({ success: false, error: 'Invalid userCode format' });
     }
 
-    const nonce = challengeStore.issue(normalized);
+    const nonce = challengeStoreInstance.issue(normalized);
     logger.info('challenge_issued', { userCode: normalized });
 
     return res.status(200).json({ success: true, userCode: normalized, nonce });
@@ -96,7 +97,7 @@ export function createPreKeyRouter(preKeyStore, presenceManager) {
         return res.status(401).json({ success: false, error: 'Challenge signature required for first upload' });
       }
 
-      const result = challengeStore.verify(normalized, incomingKey, signature);
+      const result = challengeStoreInstance.verify(normalized, incomingKey, signature);
       if (!result.ok) {
         logger.warn('upload_challenge_failed', { reason: result.reason });
         return res.status(401).json({ success: false, error: 'Invalid or expired challenge signature' });
@@ -128,6 +129,73 @@ export function createPreKeyRouter(preKeyStore, presenceManager) {
       // Return generic message — do NOT leak err.message to clients
       return res.status(status).json({ success: false, error: 'Bundle upload failed' });
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // PUT /api/prekeys/signed-prekey
+  // Rotates the Signed PreKey for an existing bundle without re-uploading all one-time PreKeys.
+  // Body: { userCode, identityKey, signedPreKey }
+  // ---------------------------------------------------------------------------
+  router.put('/signed-prekey', (req, res) => {
+    const { userCode, identityKey, signedPreKey } = req.body || {};
+    const normalized = preKeyStore.normalizeUserCode(userCode);
+
+    if (!normalized) {
+      return res.status(400).json({ success: false, error: 'Invalid userCode format' });
+    }
+
+    if (!signedPreKey || typeof signedPreKey !== 'object') {
+      return res.status(400).json({ success: false, error: 'Missing signedPreKey' });
+    }
+
+    const lockedKey = preKeyStore.getLockedIdentityKey(normalized);
+    if (!lockedKey) {
+      return res.status(404).json({ success: false, error: 'Bundle not found' });
+    }
+
+    if (identityKey && lockedKey !== identityKey) {
+      logger.warn('signed_prekey_identity_mismatch', { userCodeHash: normalized.slice(0, 4) });
+      return res.status(403).json({ success: false, error: 'Identity key mismatch' });
+    }
+
+    try {
+      const result = preKeyStore.updateSignedPreKey(normalized, signedPreKey);
+      logger.info('signed_prekey_updated', { userCode: normalized, keyId: result.signedPreKeyId });
+      return res.status(200).json({
+        success:        true,
+        userCode:       result.userCode,
+        signedPreKeyId: result.signedPreKeyId,
+        message:        'SignedPreKey updated successfully'
+      });
+    } catch (err) {
+      const statusMap = {
+        BUNDLE_NOT_FOUND:      404,
+        INVALID_USERCODE:      400,
+        INVALID_SIGNED_PREKEY: 400
+      };
+      const status = statusMap[err.code] || 400;
+      return res.status(status).json({ success: false, error: 'SignedPreKey update failed' });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/prekeys/count/:userCode
+  // Returns remaining one-time PreKey count without consuming any keys.
+  // ---------------------------------------------------------------------------
+  router.get('/count/:userCode', (req, res) => {
+    const raw        = req.params.userCode;
+    const normalized = preKeyStore.normalizeUserCode(raw);
+
+    if (!normalized) {
+      return res.status(400).json({ success: false, error: 'Invalid userCode format' });
+    }
+
+    if (!preKeyStore.hasBundleFor(normalized)) {
+      return res.status(404).json({ success: false, error: 'Bundle not found' });
+    }
+
+    const remainingPreKeys = preKeyStore.getRemainingCount(normalized);
+    return res.status(200).json({ success: true, userCode: normalized, remainingPreKeys });
   });
 
   // ---------------------------------------------------------------------------

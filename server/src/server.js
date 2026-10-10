@@ -9,7 +9,7 @@ dotenv.config();
 
 const PORT = process.env.PORT || 3000;
 
-const { app, preKeyStore, presenceManager } = createApp();
+const { app, preKeyStore, presenceManager, offlineQueueStore } = createApp();
 
 const server = http.createServer(app);
 
@@ -32,17 +32,17 @@ const io = new Server(server, {
   maxHttpBufferSize: 64 * 1024
 });
 
-setupSignalingHandlers(io, presenceManager, preKeyStore);
+setupSignalingHandlers(io, presenceManager, preKeyStore, offlineQueueStore);
 
 // ---------------------------------------------------------------------------
-// Eviction scheduler — cleans expired bundles every 5 minutes.
-// Previously evictExpired() was defined but never called; this fixes V9.
+// Eviction scheduler — cleans expired bundles and queued envelopes every 5 minutes.
 // ---------------------------------------------------------------------------
 const evictionInterval = setInterval(() => {
   const evicted = preKeyStore.evictExpired();
   if (evicted > 0) {
     logger.info('bundles_evicted', { count: evicted });
   }
+  offlineQueueStore.evictExpired();
 }, 5 * 60 * 1000);
 
 server.listen(PORT, '0.0.0.0', () => {

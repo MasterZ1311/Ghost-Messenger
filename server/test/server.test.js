@@ -20,6 +20,7 @@ import { setupSignalingHandlers } from '../src/sockets/signalingHandler.js';
 import { InMemoryPreKeyStore } from '../src/store/InMemoryPreKeyStore.js';
 import { PresenceManager } from '../src/store/PresenceManager.js';
 import { ChallengeStore } from '../src/store/ChallengeStore.js';
+import { OfflineQueueStore } from '../src/store/OfflineQueueStore.js';
 import { challengeStore } from '../src/routes/prekeys.js';
 
 // ---------------------------------------------------------------------------
@@ -220,6 +221,50 @@ describe('InMemoryPreKeyStore Unit Tests', () => {
     assert.equal(store.hasBundleFor('5JKL-2P4X'), false);
     store.upload('5JKL-2P4X', makeBundle());
     assert.equal(store.hasBundleFor('5JKL-2P4X'), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OfflineQueueStore Unit Tests
+// ---------------------------------------------------------------------------
+describe('OfflineQueueStore Unit Tests', () => {
+  let store;
+
+  beforeEach(() => {
+    store = new OfflineQueueStore(5, 50); // max 5 per user, 50ms TTL
+  });
+
+  it('should enqueue and dequeue envelopes for a recipient', () => {
+    assert.equal(store.enqueue('RECP-1234', { fromUserCode: 'SEND-1234', envelope: 'enc1' }), true);
+    assert.equal(store.enqueue('RECP-1234', { fromUserCode: 'SEND-5678', envelope: 'enc2' }), true);
+    assert.equal(store.count(), 2);
+    assert.equal(store.hasQueued('RECP-1234'), true);
+
+    const dequeued = store.dequeueAll('RECP-1234');
+    assert.equal(dequeued.length, 2);
+    assert.equal(dequeued[0].envelope, 'enc1');
+    assert.equal(dequeued[1].envelope, 'enc2');
+    assert.equal(store.count(), 0);
+    assert.equal(store.hasQueued('RECP-1234'), false);
+  });
+
+  it('should enforce maxPerUser limit', () => {
+    for (let i = 0; i < 5; i++) {
+      assert.equal(store.enqueue('RECP-1234', { fromUserCode: 'SNDR-1111', envelope: `env${i}` }), true);
+    }
+    // 6th envelope should be rejected
+    assert.equal(store.enqueue('RECP-1234', { fromUserCode: 'SNDR-1111', envelope: 'overflow' }), false);
+    assert.equal(store.count(), 5);
+  });
+
+  it('should evict expired envelopes after TTL', async () => {
+    store.enqueue('RECP-1234', { fromUserCode: 'SNDR-1111', envelope: 'short-lived' });
+    assert.equal(store.count(), 1);
+
+    await new Promise(resolve => setTimeout(resolve, 80)); // wait past 50ms TTL
+    store.evictExpired();
+    assert.equal(store.count(), 0);
+    assert.equal(store.hasQueued('RECP-1234'), false);
   });
 });
 
@@ -463,6 +508,78 @@ describe('Full Server REST & Socket.IO Integration Tests', () => {
   it('REST: TURN credentials returns 404 when not configured', async () => {
     const res = await fetch(`${serverUrl}/api/prekeys/turn/credentials?userCode=5JKL-2P4X`);
     assert.equal(res.status, 404);
+  });
+
+  it('REST: GET /count/:userCode returns count without consuming one-time prekeys', async () => {
+    const userCode = 'COUN-1234';
+    preKeyStore.upload(userCode, makeBundle(IDENTITY_KEY_B64));
+
+    // Initially 2 one-time prekeys
+    const res1 = await fetch(`${serverUrl}/api/prekeys/count/${userCode}`);
+    assert.equal(res1.status, 200);
+    const body1 = await res1.json();
+    assert.equal(body1.success, true);
+    assert.equal(body1.remainingPreKeys, 2);
+
+    // Call count again — ensure count is STILL 2 (not consumed)
+    const res2 = await fetch(`${serverUrl}/api/prekeys/count/${userCode}`);
+    assert.equal(res2.status, 200);
+    const body2 = await res2.json();
+    assert.equal(body2.remainingPreKeys, 2);
+  });
+
+  it('REST: PUT /signed-prekey updates signedPreKey without altering one-time prekeys', async () => {
+    const userCode = 'ROTA-1234';
+    preKeyStore.upload(userCode, makeBundle(IDENTITY_KEY_B64));
+
+    const newSignedPreKey = {
+      keyId: 2,
+      publicKey: 'newSignedPubKey==',
+      signature: 'newSignedSig=='
+    };
+
+    const res = await fetch(`${serverUrl}/api/prekeys/signed-prekey`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userCode,
+        identityKey: IDENTITY_KEY_B64,
+        signedPreKey: newSignedPreKey
+      })
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.signedPreKeyId, 2);
+
+    // Verify fetched bundle has new signed prekey and still has one-time prekeys
+    const fetchRes = await fetch(`${serverUrl}/api/prekeys/${userCode}`);
+    const fetchBody = await fetchRes.json();
+    assert.equal(fetchBody.bundle.signedPreKey.keyId, 2);
+    assert.equal(fetchBody.bundle.signedPreKey.publicKey, 'newSignedPubKey==');
+  });
+
+  it('REST: PUT /signed-prekey with mismatched identity key returns 403', async () => {
+    const userCode = 'ROTA-5678';
+    preKeyStore.upload(userCode, makeBundle(IDENTITY_KEY_B64));
+
+    const res = await fetch(`${serverUrl}/api/prekeys/signed-prekey`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userCode,
+        identityKey: 'DIFFERENT_KEY_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+        signedPreKey: { keyId: 2, publicKey: 'pk', signature: 'sig' }
+      })
+    });
+    assert.equal(res.status, 403);
+  });
+
+  it('REST: ChallengeStore isolated instance in createApp prevents cross-test pollution', () => {
+    const customChallengeStore = new ChallengeStore();
+    const appInstance = createApp({ challengeStore: customChallengeStore });
+    assert.equal(appInstance.challengeStore, customChallengeStore);
+    assert.notEqual(appInstance.challengeStore, challengeStore);
   });
 
   // ---- Socket.IO: WebRTC signaling flow ------------------------------------

@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { InMemoryPreKeyStore } from './store/InMemoryPreKeyStore.js';
 import { PresenceManager } from './store/PresenceManager.js';
+import { OfflineQueueStore } from './store/OfflineQueueStore.js';
+import { ChallengeStore } from './store/ChallengeStore.js';
 import { createPreKeyRouter } from './routes/prekeys.js';
 
 /**
@@ -20,13 +22,15 @@ function buildCorsOriginList() {
 
 /**
  * Creates and configures the Express application.
- * Returns { app, preKeyStore, presenceManager } for dependency injection in tests.
+ * Returns { app, preKeyStore, presenceManager, offlineQueueStore, challengeStore } for dependency injection in tests.
  */
-export function createApp() {
-  const app            = express();
-  const preKeyStore    = new InMemoryPreKeyStore();
-  const presenceManager = new PresenceManager();
-  const allowedOrigins = buildCorsOriginList();
+export function createApp(options = {}) {
+  const app               = express();
+  const preKeyStore       = options.preKeyStore || new InMemoryPreKeyStore();
+  const presenceManager   = options.presenceManager || new PresenceManager();
+  const offlineQueueStore = options.offlineQueueStore || new OfflineQueueStore();
+  const challengeStore    = options.challengeStore || new ChallengeStore();
+  const allowedOrigins    = buildCorsOriginList();
 
   // ---------------------------------------------------------------------------
   // Security Headers — Helmet
@@ -115,7 +119,7 @@ export function createApp() {
   // ---------------------------------------------------------------------------
   // Routes
   // ---------------------------------------------------------------------------
-  app.use('/api/prekeys', createPreKeyRouter(preKeyStore, presenceManager));
+  app.use('/api/prekeys', createPreKeyRouter(preKeyStore, presenceManager, challengeStore));
 
   // Root greeting — used by verify-deployment.js health probe
   app.get('/', (_req, res) => {
@@ -141,5 +145,5 @@ export function createApp() {
     res.status(500).json({ success: false, error: 'Internal server error' });
   });
 
-  return { app, preKeyStore, presenceManager };
+  return { app, preKeyStore, presenceManager, offlineQueueStore, challengeStore };
 }
