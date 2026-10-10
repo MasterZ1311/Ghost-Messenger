@@ -194,7 +194,7 @@ class SecurePreferences @Inject constructor(
 
         const val DEFAULT_SIGNALING_URL = "https://ghost-messenger-iptc.onrender.com"
         const val DEFAULT_TURN_SERVER_URL = "turn:global.relay.metered.ca:80"
-        const val DEFAULT_TURN_USERNAME = "d8b6c3ca05209ab02a917f8b"
-        const val DEFAULT_TURN_PASSWORD = "1zz/bX4u3W5ILOXV"
+        const val DEFAULT_TURN_USERNAME = ""
+        const val DEFAULT_TURN_PASSWORD = ""
     }
 }

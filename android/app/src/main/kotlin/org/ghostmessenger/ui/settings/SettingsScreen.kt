@@ -264,10 +264,23 @@ fun SettingsScreen(
                 letterSpacing = 1.sp
             )
             Spacer(modifier = Modifier.height(4.dp))
+            val isTurnConfigured = uiState.turnUsernameInput.isNotBlank() && uiState.turnPasswordInput.isNotBlank()
             Text(
-                text = "Optional credentials for symmetric NAT firewall traversal (STUN operates by default):",
+                text = if (isTurnConfigured) "STATUS: CUSTOM TURN RELAY CONFIGURED" else "STATUS: STUN ONLY (No TURN relay configured)",
+                color = if (isTurnConfigured) GhostColors.NeonCyan else GhostColors.TextMuted,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = if (isTurnConfigured)
+                    "Custom TURN relay enabled for symmetric NAT firewall traversal."
+                else
+                    "Direct P2P operates via STUN by default. If your network blocks direct UDP peer connections, enter your TURN server credentials below.",
                 color = GhostColors.TextMuted,
-                fontSize = 11.sp
+                fontSize = 11.sp,
+                lineHeight = 15.sp
             )
             Spacer(modifier = Modifier.height(8.dp))
 
