@@ -131,6 +131,54 @@ The signaling backend exposes REST endpoints under `/api/prekeys` and `/` (`serv
 
 ---
 
+#### `GET /api/prekeys/count/:userCode`
+- **Purpose**: Queries the remaining one-time PreKey count for a user without consuming any PreKeys. Used by clients to determine if replenishment is required.
+- **Path Parameters**:
+  - `userCode` (string): Target UserCode in standard `XXXX-XXXX` format.
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "userCode": "5J9L-2P4X",
+    "remainingPreKeys": 42
+  }
+  ```
+- **Error Codes**:
+  - `400 Bad Request`: Invalid UserCode format.
+  - `404 Not Found`: No bundle registered for this UserCode.
+
+---
+
+#### `PUT /api/prekeys/signed-prekey`
+- **Purpose**: Rotates only the Signed PreKey for an existing bundle without invalidating or replacing the pool of one-time PreKeys.
+- **Request Body**:
+  ```json
+  {
+    "userCode": "5J9L-2P4X",
+    "identityKey": "base64-encoded-curve25519-public-key",
+    "signedPreKey": {
+      "keyId": 2,
+      "publicKey": "base64-encoded-public-key",
+      "signature": "base64-encoded-signature"
+    }
+  }
+  ```
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "userCode": "5J9L-2P4X",
+    "signedPreKeyId": 2,
+    "message": "SignedPreKey updated successfully"
+  }
+  ```
+- **Error Codes**:
+  - `400 Bad Request`: Missing fields or invalid UserCode format.
+  - `403 Forbidden`: Identity key mismatch with locked key.
+  - `404 Not Found`: Bundle not found.
+
+---
+
 #### `GET /api/prekeys/:userCode`
 - **Purpose**: Fetches a PreKey bundle to build a Signal Protocol Double Ratchet session with a remote peer.
 - **Consumption Semantics**: Atomically consumes (pops) one one-time PreKey from the target user's pool. If no one-time PreKeys remain, returns the Signed PreKey alone.

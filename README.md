@@ -99,6 +99,8 @@ Calypso
 | Key Storage | EncryptedSharedPreferences | OS-level Android Keystore secure storage |
 | Server Side | Zero plaintext knowledge | Ephemeral relay buffers encrypted blobs only; never touches plaintext |
 | Relay Privacy | Zero hardcoded credentials | STUN-only by default; custom TURN credentials encrypted in preferences |
+| Screen Protection | WindowManager FLAG_SECURE | Prevents screenshots, screen recordings, and task switcher previews |
+| Network Policy | Network Security Config | Enforces TLS/HTTPS only; blocks cleartext HTTP on public networks |
 
 ---
 
@@ -208,9 +210,11 @@ docker run -p 3000:3000 calypso-signaling
 | GET | /ready | Readiness probe |
 | GET | /api/prekeys/challenge/:userCode | Issue cryptographic challenge nonce |
 | POST | /api/prekeys/upload | Upload PreKey bundle with HMAC signature |
+| GET | /api/prekeys/count/:userCode | Query remaining one-time PreKey count without consuming keys |
+| PUT | /api/prekeys/signed-prekey | Rotate Signed PreKey without replacing one-time PreKeys |
 | GET | /api/prekeys/:userCode | Fetch PreKey bundle for peer (consumes one-time prekey) |
 | POST | /api/prekeys/fcm-token | Register device FCM token for zero-knowledge wake-up pings |
-| POST | /api/turn-credentials | Generate ephemeral TURN credentials |
+| GET | /api/prekeys/turn/credentials | Generate ephemeral TURN credentials |
 
 ### Socket.IO Events
 

@@ -109,6 +109,27 @@ Release builds enable R8 code shrinking, tree shaking, and identifier obfuscatio
 - Minification and resource shrinking strip unused classes and dead code.
 - Cryptographic library symbols (`org.signal:libsignal-android`, `net.zetetic:sqlcipher-android`) have explicit keep rules in `proguard-rules.pro` to prevent reflection breakage while obfuscating application logic.
 
+### 4.4 Cleartext Prohibition & Network Security Config
+
+To ensure that sensitive metadata and encrypted signaling traffic are never intercepted or downgraded over insecure Wi-Fi or cellular networks, `network_security_config.xml` is enforced globally:
+- `cleartextTrafficPermitted="false"` is applied across all base network traffic.
+- Cleartext communication is permitted solely for local loopback development endpoints (`10.0.2.2`, `127.0.0.1`, `localhost`).
+- Custom certificate authorities are rejected in production builds, preventing TLS inspection via user-installed root certificates.
+
+### 4.5 Zero Plaintext Fallback in Secure Storage
+
+In earlier iterations, an `EncryptedSharedPreferences` initialization failure would fall back to unencrypted `getSharedPreferences()`, introducing a silent plaintext leakage risk for mnemonic seed phrases and SQLCipher passphrases.
+In Calypso, this fallback is strictly prohibited (`SecurePreferences.kt:51-56`):
+- If Keystore initialization fails after self-healing keymaster recovery, a non-recoverable `SecurityException` is thrown.
+- Storage downgrade is impossible by design; the application will halt rather than persist secrets unencrypted.
+
+### 4.6 Post-Quantum Cryptography Assessment (PQXDH / Kyber)
+
+Calypso tracks the Signal PQXDH (Post-Quantum Extended Diffie-Hellman) specification to defend against *Harvest Now, Decrypt Later* adversaries:
+- **Local Persistence Ready**: `AppDatabase` includes `signal_kyber_prekeys` managed by `SignalKyberPreKeyDao` (`SignalDao.kt:28-48`).
+- **Store Implementation**: `SqliteSignalProtocolStore` fully implements the libsignal `KyberPreKeyStore` interface (`SqliteSignalProtocolStore.kt:214-241`), supporting `loadKyberPreKey`, `storeKyberPreKey`, and `markKyberPreKeyUsed`.
+- **Hybrid Key Exchange Readiness**: `libsignal-android 0.64.1` incorporates Rust-backed ML-KEM (Kyber-1024) bindings. Calypso’s client-server schema already provisions `kyberPreKey` fields in `PreKeyBundleDto` and REST endpoints. The hybrid DH + KEM handshake is ready for activation without breaking database migrations or backward compatibility.
+
 ---
 
 ## 5. Server-Side Security Hardening
@@ -131,7 +152,17 @@ The server logger (`server/src/middleware/logger.js:10-38`) outputs structured J
 ### 5.3 Bound Memory Footprint
 
 To prevent memory exhaustion denial-of-service:
-- `InMemoryPreKeyStore`: Maximum 1,000 bundles, 100 PreKeys per user, 30-day automatic expiration.
+- `InMemoryPreKeyStore`: Maximum 10,000 bundles, 500 PreKeys per user, 7-day automatic expiration.
 - `ChallengeStore`: Maximum 5,000 pending nonces, 60-second TTL.
 - `OfflineQueueStore`: Maximum 50 envelopes per user, 24-hour TTL, automatic eviction.
 - `PresenceManager`: Maximum 3 sockets per user, maximum 5 connections per IP.
+
+### 5.4 Active Eviction & TTL Enforcement
+
+Stale envelopes and expired PreKey bundles are periodically evicted from volatile memory (`server.js:41-47`):
+- `preKeyStore.evictExpired()` purges expired identity bundles older than 7 days.
+- `offlineQueueStore.evictExpired()` actively sweeps all offline queues every 5 minutes, enforcing the 24-hour message TTL and preventing unbounded memory accumulation.
+
+### 5.5 Dependency Injection & Test Isolation
+
+To eliminate cross-test state leakage, all core stores (`InMemoryPreKeyStore`, `PresenceManager`, `OfflineQueueStore`, `ChallengeStore`) are instantiated per-app instance in `createApp(options)` (`app.js:25-35`). Integration suites receive freshly isolated store instances, ensuring replay prevention and rate limit counters are completely decoupled across test executions.
