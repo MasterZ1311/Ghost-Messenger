@@ -3,6 +3,7 @@ package org.ghostmessenger.data.repository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,7 +63,8 @@ class MessageRepository @Inject constructor(
     private val signalingClient: SignalingClient,
     private val webRtcManager: WebRtcManager
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var repositoryJob = SupervisorJob()
+    private var scope = CoroutineScope(repositoryJob + Dispatchers.IO)
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
 
     private val _currentIdentity = MutableStateFlow<Identity?>(null)
@@ -77,6 +79,29 @@ class MessageRepository @Inject constructor(
     val signalingState: StateFlow<SignalingConnectionState> = signalingClient.connectionState
 
     init {
+        startObservers()
+
+        // Auto-load existing identity if present
+        val existing = securePreferences.getIdentity()
+        if (existing != null) {
+            _currentIdentity.value = existing
+            val serverUrl = securePreferences.getSignalingUrl()
+            signalingClient.connect(serverUrl, existing.userCode)
+            // Security (F10): check prekey replenishment and signed prekey rotation on startup
+            scope.launch {
+                replenishPreKeysIfNeeded(serverUrl, existing.userCode)
+                rotateSignedPreKeyIfNeeded(serverUrl, existing.userCode)
+            }
+        }
+    }
+
+    /**
+     * Starts or restarts coroutine collectors for incoming signaling and WebRTC messages.
+     * Cancels existing child jobs to prevent duplicate listeners.
+     */
+    private fun startObservers() {
+        repositoryJob.cancelChildren()
+
         // 1. Observe incoming WebRTC signaling events
         scope.launch {
             signalingClient.incomingOffers.collect { offer ->
@@ -110,19 +135,6 @@ class MessageRepository @Inject constructor(
                 handleIncomingEnvelopeString(envelopeJson)
             }
         }
-
-        // 4. Auto-load existing identity if present
-        val existing = securePreferences.getIdentity()
-        if (existing != null) {
-            _currentIdentity.value = existing
-            val serverUrl = securePreferences.getSignalingUrl()
-            signalingClient.connect(serverUrl, existing.userCode)
-            // Security (F10): check prekey replenishment and signed prekey rotation on startup
-            scope.launch {
-                replenishPreKeysIfNeeded(serverUrl, existing.userCode)
-                rotateSignedPreKeyIfNeeded(serverUrl, existing.userCode)
-            }
-        }
     }
 
     /**
@@ -147,6 +159,7 @@ class MessageRepository @Inject constructor(
             }
 
             // Connect to Socket.IO signaling server
+            startObservers()
             signalingClient.connect(serverUrl, identity.userCode)
 
             Result.success(true)
@@ -225,12 +238,47 @@ class MessageRepository @Inject constructor(
             ?: return Result.failure(IllegalStateException("No active identity initialized"))
 
         val serverUrl = securePreferences.getSignalingUrl()
+        val messageId = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+
+        // 1. Immediately insert message with STATUS_SENDING into local database for reactive UI feedback
+        val initialMessage = MessageEntity(
+            id = messageId,
+            conversationUserCode = recipientUserCode,
+            senderUserCode = myIdentity.userCode,
+            recipientUserCode = recipientUserCode,
+            content = content,
+            timestamp = now,
+            status = MessageEntity.STATUS_SENDING,
+            isOutgoing = true
+        )
+        messageDao.insertMessage(initialMessage)
+
+        // 2. Update conversation record preview
+        val existingConv = conversationDao.getConversation(recipientUserCode)
+        if (existingConv == null) {
+            conversationDao.insertOrUpdate(
+                ConversationEntity(
+                    userCode = recipientUserCode,
+                    lastMessage = content,
+                    lastMessageTimestamp = now,
+                    unreadCount = 0
+                )
+            )
+        } else {
+            conversationDao.updateLastMessage(
+                userCode = recipientUserCode,
+                lastMessage = content,
+                timestamp = now
+            )
+        }
 
         return try {
-            // 1. Ensure a Signal Double Ratchet session exists
+            // 3. Ensure a Signal Double Ratchet session exists
             if (!signalCryptoManager.hasSession(recipientUserCode)) {
                 val fetchResult = preKeyApiClient.fetchPreKeyBundle(serverUrl, recipientUserCode)
                 if (fetchResult.isFailure) {
+                    messageDao.updateStatus(messageId, MessageEntity.STATUS_FAILED)
                     return Result.failure(
                         fetchResult.exceptionOrNull()
                             ?: Exception("Failed to fetch PreKey bundle for $recipientUserCode")
@@ -240,8 +288,7 @@ class MessageRepository @Inject constructor(
                 signalCryptoManager.buildSession(recipientUserCode, remoteBundle)
             }
 
-            // 2. Encrypt plaintext into EncryptedEnvelope
-            val messageId = UUID.randomUUID().toString()
+            // 4. Encrypt plaintext into EncryptedEnvelope
             val envelope = signalCryptoManager.encryptMessage(
                 senderUserCode = myIdentity.userCode,
                 recipientUserCode = recipientUserCode,
@@ -250,7 +297,7 @@ class MessageRepository @Inject constructor(
             )
             val envelopeJson = json.encodeToString(envelope)
 
-            // 3. Dispatch message: WebRTC DataChannel (Primary) -> Signaling Relay (Fallback)
+            // 5. Dispatch message: WebRTC DataChannel (Primary) -> Signaling Relay (Fallback)
             val sentDirectly = if (webRtcManager.isDataChannelOpen(recipientUserCode)) {
                 webRtcManager.sendData(recipientUserCode, envelopeJson.toByteArray(StandardCharsets.UTF_8))
             } else {
@@ -264,40 +311,60 @@ class MessageRepository @Inject constructor(
                 initiateP2PConnection(recipientUserCode)
             }
 
-            // 4. Save to local SQLCipher Room database
-            val messageEntity = MessageEntity(
-                id = messageId,
-                conversationUserCode = recipientUserCode,
-                senderUserCode = myIdentity.userCode,
-                recipientUserCode = recipientUserCode,
-                content = content,
-                timestamp = envelope.timestamp,
-                status = MessageEntity.STATUS_SENT,
-                isOutgoing = true
-            )
-            messageDao.insertMessage(messageEntity)
+            // 6. Update status to STATUS_SENT
+            messageDao.updateStatus(messageId, MessageEntity.STATUS_SENT)
+            Result.success(initialMessage.copy(status = MessageEntity.STATUS_SENT))
+        } catch (e: Exception) {
+            messageDao.updateStatus(messageId, MessageEntity.STATUS_FAILED)
+            Result.failure(e)
+        }
+    }
 
-            // 5. Update or insert conversation record
-            val existingConv = conversationDao.getConversation(recipientUserCode)
-            if (existingConv == null) {
-                conversationDao.insertOrUpdate(
-                    ConversationEntity(
-                        userCode = recipientUserCode,
-                        lastMessage = content,
-                        lastMessageTimestamp = envelope.timestamp,
-                        unreadCount = 0
-                    )
-                )
-            } else {
-                conversationDao.updateLastMessage(
-                    userCode = recipientUserCode,
-                    lastMessage = content,
-                    timestamp = envelope.timestamp
-                )
+    /**
+     * Retries sending a previously failed message.
+     */
+    suspend fun retrySendMessage(messageId: String): Result<MessageEntity> {
+        val existing = messageDao.getMessageById(messageId)
+            ?: return Result.failure(IllegalArgumentException("Message $messageId not found"))
+        val myIdentity = _currentIdentity.value
+            ?: return Result.failure(IllegalStateException("No active identity initialized"))
+        val serverUrl = securePreferences.getSignalingUrl()
+        val recipientUserCode = existing.conversationUserCode
+
+        messageDao.updateStatus(messageId, MessageEntity.STATUS_SENDING)
+        return try {
+            if (!signalCryptoManager.hasSession(recipientUserCode)) {
+                val fetchResult = preKeyApiClient.fetchPreKeyBundle(serverUrl, recipientUserCode)
+                if (fetchResult.isFailure) {
+                    messageDao.updateStatus(messageId, MessageEntity.STATUS_FAILED)
+                    return Result.failure(fetchResult.exceptionOrNull() ?: Exception("PreKey fetch failed"))
+                }
+                signalCryptoManager.buildSession(recipientUserCode, fetchResult.getOrThrow())
             }
 
-            Result.success(messageEntity)
+            val envelope = signalCryptoManager.encryptMessage(
+                senderUserCode = myIdentity.userCode,
+                recipientUserCode = recipientUserCode,
+                messageId = messageId,
+                plaintext = existing.content
+            )
+            val envelopeJson = json.encodeToString(envelope)
+
+            val sentDirectly = if (webRtcManager.isDataChannelOpen(recipientUserCode)) {
+                webRtcManager.sendData(recipientUserCode, envelopeJson.toByteArray(StandardCharsets.UTF_8))
+            } else {
+                false
+            }
+
+            if (!sentDirectly) {
+                signalingClient.sendEncryptedEnvelope(recipientUserCode, envelopeJson)
+                initiateP2PConnection(recipientUserCode)
+            }
+
+            messageDao.updateStatus(messageId, MessageEntity.STATUS_SENT)
+            Result.success(existing.copy(status = MessageEntity.STATUS_SENT))
         } catch (e: Exception) {
+            messageDao.updateStatus(messageId, MessageEntity.STATUS_FAILED)
             Result.failure(e)
         }
     }
@@ -547,6 +614,7 @@ class MessageRepository @Inject constructor(
      * Destroys all local session state and clears identity.
      */
     suspend fun resetAll() {
+        repositoryJob.cancelChildren()
         webRtcManager.closeAll()
         signalingClient.disconnect()
         conversationDao.clearAllConversations()

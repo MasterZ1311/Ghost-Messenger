@@ -57,5 +57,11 @@ class ConversationAndMessageTest {
 
         val updated = message.copy(status = MessageEntity.STATUS_READ)
         assertEquals(MessageEntity.STATUS_READ, updated.status)
+
+        val sending = message.copy(status = MessageEntity.STATUS_SENDING)
+        assertEquals(MessageEntity.STATUS_SENDING, sending.status)
+
+        val failed = message.copy(status = MessageEntity.STATUS_FAILED)
+        assertEquals(MessageEntity.STATUS_FAILED, failed.status)
     }
 }

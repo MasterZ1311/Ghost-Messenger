@@ -79,19 +79,23 @@ class ChatViewModel @Inject constructor(
         val content = _uiState.value.messageInput.trim()
         if (content.isBlank()) return
 
-        _uiState.value = _uiState.value.copy(isSending = true, sendError = null)
+        _uiState.value = _uiState.value.copy(messageInput = "", isSending = true, sendError = null)
 
         viewModelScope.launch {
             val result = messageRepository.sendMessage(recipientUserCode, content)
-            if (result.isSuccess) {
+            _uiState.value = _uiState.value.copy(
+                isSending = false,
+                sendError = if (result.isFailure) "Message failed to send. Tap to retry." else null
+            )
+        }
+    }
+
+    fun retryMessage(messageId: String) {
+        viewModelScope.launch {
+            val result = messageRepository.retrySendMessage(messageId)
+            if (result.isFailure) {
                 _uiState.value = _uiState.value.copy(
-                    messageInput = "",
-                    isSending = false
-                )
-            } else {
-                _uiState.value = _uiState.value.copy(
-                    isSending = false,
-                    sendError = "Message failed to send. Please try again."
+                    sendError = "Retry failed. Check network connection."
                 )
             }
         }

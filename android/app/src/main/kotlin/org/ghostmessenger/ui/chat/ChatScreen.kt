@@ -3,6 +3,7 @@ package org.ghostmessenger.ui.chat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -159,7 +160,10 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(messages, key = { it.id }) { message ->
-                    MessageBubble(message = message)
+                    MessageBubble(
+                        message = message,
+                        onRetry = { viewModel.retryMessage(it) }
+                    )
                 }
             }
 
@@ -268,11 +272,18 @@ private fun SecurityBanner() {
 }
 
 @Composable
-private fun MessageBubble(message: MessageEntity) {
+private fun MessageBubble(
+    message: MessageEntity,
+    onRetry: ((String) -> Unit)? = null
+) {
     val isOutgoing = message.isOutgoing
     val alignment = if (isOutgoing) Alignment.End else Alignment.Start
     val bg = if (isOutgoing) GhostColors.CardGlass else GhostColors.SurfaceSlate
-    val borderColor = if (isOutgoing) GhostColors.GhostGreen else GhostColors.NeonCyan
+    val borderColor = if (isOutgoing) {
+        if (message.status == MessageEntity.STATUS_FAILED) GhostColors.WarningRed else GhostColors.GhostGreen
+    } else {
+        GhostColors.NeonCyan
+    }
     val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))
 
     Column(
@@ -313,6 +324,7 @@ private fun MessageBubble(message: MessageEntity) {
                             MessageEntity.STATUS_DELIVERED, MessageEntity.STATUS_READ -> "✓✓"
                             MessageEntity.STATUS_SENT -> "✓"
                             MessageEntity.STATUS_SENDING -> "⋯"
+                            MessageEntity.STATUS_FAILED -> "! RETRY"
                             else -> "!"
                         }
                         Text(
@@ -320,11 +332,18 @@ private fun MessageBubble(message: MessageEntity) {
                             color = when (message.status) {
                                 MessageEntity.STATUS_READ -> GhostColors.GhostGreen
                                 MessageEntity.STATUS_DELIVERED -> GhostColors.NeonCyan
-                                else -> GhostColors.TextMuted
+                                MessageEntity.STATUS_SENDING -> GhostColors.TextMuted
+                                MessageEntity.STATUS_FAILED -> GhostColors.WarningRed
+                                else -> GhostColors.WarningRed
                             },
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = FontFamily.Monospace,
+                            modifier = if (message.status == MessageEntity.STATUS_FAILED && onRetry != null) {
+                                Modifier.clickable { onRetry(message.id) }
+                            } else {
+                                Modifier
+                            }
                         )
                     }
                 }
