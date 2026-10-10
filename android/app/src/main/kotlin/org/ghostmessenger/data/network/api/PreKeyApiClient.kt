@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -11,9 +12,13 @@ import io.ktor.http.contentType
 import org.ghostmessenger.data.network.model.ChallengeResponse
 import org.ghostmessenger.data.network.model.HealthStatusDto
 import org.ghostmessenger.data.network.model.PreKeyBundleDto
+import org.ghostmessenger.data.network.model.PreKeyCountResponse
 import org.ghostmessenger.data.network.model.PreKeyFetchBundleDto
 import org.ghostmessenger.data.network.model.PreKeyResponse
 import org.ghostmessenger.data.network.model.PreKeyUploadRequest
+import org.ghostmessenger.data.network.model.SignedPreKeyDto
+import org.ghostmessenger.data.network.model.SignedPreKeyUpdateRequest
+import org.ghostmessenger.data.network.model.SignedPreKeyUpdateResponse
 import java.security.MessageDigest
 import java.util.Base64
 import javax.crypto.Mac
@@ -173,6 +178,65 @@ class PreKeyApiClient @Inject constructor(
                 Result.success(true)
             } else {
                 Result.failure(Exception("Failed to register FCM token: ${response.status.value}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Checks remaining one-time PreKey count on the server without consuming any keys.
+     */
+    suspend fun fetchPreKeyCount(
+        baseUrl: String,
+        userCode: String
+    ): Result<Int> {
+        return try {
+            val url = cleanUrl(baseUrl) + "/api/prekeys/count/$userCode"
+            val response = httpClient.get(url)
+            if (response.status == HttpStatusCode.OK) {
+                val body = response.body<PreKeyCountResponse>()
+                if (body.success) {
+                    Result.success(body.remainingPreKeys)
+                } else {
+                    Result.failure(Exception(body.error ?: "Failed to fetch prekey count"))
+                }
+            } else {
+                val errorBody = runCatching { response.body<PreKeyCountResponse>() }.getOrNull()
+                val errorMsg = errorBody?.error ?: "Server returned status: ${response.status.value}"
+                Result.failure(Exception(errorMsg))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Rotates only the Signed PreKey for the existing bundle without re-uploading all one-time PreKeys.
+     */
+    suspend fun updateSignedPreKey(
+        baseUrl: String,
+        userCode: String,
+        identityKey: String,
+        signedPreKey: SignedPreKeyDto
+    ): Result<Boolean> {
+        return try {
+            val url = cleanUrl(baseUrl) + "/api/prekeys/signed-prekey"
+            val response = httpClient.put(url) {
+                contentType(ContentType.Application.Json)
+                setBody(SignedPreKeyUpdateRequest(userCode = userCode, identityKey = identityKey, signedPreKey = signedPreKey))
+            }
+            if (response.status == HttpStatusCode.OK) {
+                val body = response.body<SignedPreKeyUpdateResponse>()
+                if (body.success) {
+                    Result.success(true)
+                } else {
+                    Result.failure(Exception(body.error ?: "SignedPreKey update failed"))
+                }
+            } else {
+                val errorBody = runCatching { response.body<SignedPreKeyUpdateResponse>() }.getOrNull()
+                val errorMsg = errorBody?.error ?: "Server returned status: ${response.status.value}"
+                Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
             Result.failure(e)

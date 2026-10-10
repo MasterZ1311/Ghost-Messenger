@@ -119,4 +119,42 @@ class PreKeyApiClientTest {
         val signature = org.ghostmessenger.data.network.api.PreKeyApiClient.computeChallengeSignature(identityKeyB64, nonce)
         assertEquals(expected, signature)
     }
+
+    @Test
+    fun testPreKeyCountResponseDeserialization() {
+        val jsonPayload = """
+            {
+                "success": true,
+                "userCode": "5JKL-2P4X",
+                "remainingPreKeys": 42
+            }
+        """.trimIndent()
+
+        val response = json.decodeFromString<org.ghostmessenger.data.network.model.PreKeyCountResponse>(jsonPayload)
+        assertTrue(response.success)
+        assertEquals("5JKL-2P4X", response.userCode)
+        assertEquals(42, response.remainingPreKeys)
+    }
+
+    @Test
+    fun testSignedPreKeyUpdateRequestSerialization() {
+        val request = org.ghostmessenger.data.network.model.SignedPreKeyUpdateRequest(
+            userCode = "5JKL-2P4X",
+            identityKey = "BASE64_IDENTITY_KEY",
+            signedPreKey = SignedPreKeyDto(
+                keyId = 5,
+                publicKey = "BASE64_SIGNED_KEY",
+                signature = "BASE64_SIGNATURE"
+            )
+        )
+
+        val serialized = json.encodeToString(request)
+        assertTrue(serialized.contains("5JKL-2P4X"))
+        assertTrue(serialized.contains("BASE64_IDENTITY_KEY"))
+        assertTrue(serialized.contains(""""keyId":5"""))
+
+        val deserialized = json.decodeFromString<org.ghostmessenger.data.network.model.SignedPreKeyUpdateRequest>(serialized)
+        assertEquals("5JKL-2P4X", deserialized.userCode)
+        assertEquals(5, deserialized.signedPreKey.keyId)
+    }
 }

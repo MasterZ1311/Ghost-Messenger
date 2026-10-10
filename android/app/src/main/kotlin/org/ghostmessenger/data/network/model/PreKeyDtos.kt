@@ -80,3 +80,27 @@ data class FcmTokenRequest(
     val fcmToken: String
 )
 
+@Serializable
+data class PreKeyCountResponse(
+    val success: Boolean,
+    val userCode: String? = null,
+    val remainingPreKeys: Int = 0,
+    val error: String? = null
+)
+
+@Serializable
+data class SignedPreKeyUpdateRequest(
+    val userCode: String,
+    val identityKey: String? = null,
+    val signedPreKey: SignedPreKeyDto
+)
+
+@Serializable
+data class SignedPreKeyUpdateResponse(
+    val success: Boolean,
+    val userCode: String? = null,
+    val signedPreKeyId: Int? = null,
+    val message: String? = null,
+    val error: String? = null
+)
+

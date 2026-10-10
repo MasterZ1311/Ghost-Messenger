@@ -166,8 +166,8 @@ class MessageRepository @Inject constructor(
         threshold: Int = 10
     ) {
         try {
-            val fetchResult = preKeyApiClient.fetchPreKeyBundle(serverUrl, userCode)
-            val remainingCount = fetchResult.getOrNull()?.remainingPreKeys ?: return
+            val countResult = preKeyApiClient.fetchPreKeyCount(serverUrl, userCode)
+            val remainingCount = countResult.getOrNull() ?: return
             if (remainingCount < threshold) {
                 // Find the highest stored prekey ID to avoid ID collision on re-upload
                 val currentMaxId = signalCryptoManager.signalProtocolStore
@@ -193,8 +193,9 @@ class MessageRepository @Inject constructor(
         try {
             if (signalCryptoManager.shouldRotateSignedPreKey()) {
                 val newSignedPreKey = signalCryptoManager.rotateSignedPreKey()
-                val bundleDto = signalCryptoManager.generateAndStorePreKeys(startId = 1, count = 50)
-                preKeyApiClient.uploadPreKeyBundle(serverUrl, userCode, bundleDto)
+                val identity = _currentIdentity.value ?: return
+                val identityKeyB64 = java.util.Base64.getEncoder().encodeToString(identity.publicKeyBytes)
+                preKeyApiClient.updateSignedPreKey(serverUrl, userCode, identityKeyB64, newSignedPreKey)
             }
         } catch (e: Exception) {
             if (BuildConfig.DEBUG) {
