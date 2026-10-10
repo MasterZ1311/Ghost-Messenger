@@ -49,7 +49,11 @@ class SecurePreferences @Inject constructor(
                     EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
                 )
             } catch (fallbackEx: Exception) {
-                context.getSharedPreferences(PREFS_FILE_NAME, Context.MODE_PRIVATE)
+                // Do NOT fall back to plaintext. Surface the failure.
+                throw SecurityException(
+                    "Critical: EncryptedSharedPreferences initialization failed after recovery attempt. " +
+                    "Cannot proceed without secure storage.", fallbackEx
+                )
             }
         }
     }
